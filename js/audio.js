@@ -21,6 +21,13 @@
       noise = c.createBuffer(1, c.sampleRate, c.sampleRate);
       const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
       if (P.S.samples) loadSamples();
+      /* iPhone : un élément audio muet fait passer le son même avec le bouton silencieux enclenché */
+      try {
+        const n = 2205, hdr = 44, b = new Uint8Array(hdr + n), dv = new DataView(b.buffer), wr = (o, str) => [...str].forEach((ch, i) => (b[o + i] = ch.charCodeAt(0)));
+        wr(0, 'RIFF'); dv.setUint32(4, 36 + n, true); wr(8, 'WAVEfmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+        dv.setUint32(24, 22050, true); dv.setUint32(28, 22050, true); dv.setUint16(32, 1, true); dv.setUint16(34, 8, true); wr(36, 'data'); dv.setUint32(40, n, true); b.fill(128, hdr);
+        const el = new Audio(URL.createObjectURL(new Blob([b], { type: 'audio/wav' }))); el.loop = true; el.setAttribute('playsinline', ''); el.play().catch(() => {});
+      } catch (e) { /* sans importance */ }
     }
     if (c.state === 'suspended') c.resume();
     return c;
@@ -49,6 +56,7 @@
   A.piano = (m, t, dur = 1.2, vel = 0.7) => {
     const x = ctx(); t = Math.max(t || 0, x.currentTime);
     const g = x.createGain(); g.connect(master); g.connect(A.rev);
+    A.busy = Math.max(A.busy || 0, t + Math.min(dur, 1.6) + 0.35);
     let best = null, bd = 99;
     if (P.S.samples) for (const k in A.samples) { const d = Math.abs(k - m); if (d < bd) { bd = d; best = +k; } }
     if (best != null && bd <= 7) {
@@ -77,7 +85,7 @@
   A.seq = (list, t0) => { t0 = t0 || A.now() + 0.05; list.forEach(([m, s, d, v]) => A.piano(m, t0 + s, d || 0.5, v || 0.7)); return t0; };
 
   A.bass = (m, t, dur = 0.4, vel = 0.8) => {
-    const x = ctx(); t = Math.max(t || 0, x.currentTime); const f = 440 * Math.pow(2, (m - 69) / 12);
+    const x = ctx(); t = Math.max(t || 0, x.currentTime); A.busy = Math.max(A.busy || 0, t + dur + 0.4); const f = 440 * Math.pow(2, (m - 69) / 12);
     const g = x.createGain(), lp = x.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700; lp.connect(g); g.connect(master);
     [['triangle', 1, 0.8], ['sine', 1, 0.6], ['sawtooth', 1, 0.12]].forEach(([ty, r, a]) => {
       const o = x.createOscillator(); o.type = ty; o.frequency.value = f * r; const og = x.createGain(); og.gain.value = a;
@@ -109,9 +117,23 @@
     let timer = null, next = 0, step = 0;
     const dur = i => { const beat = 60 / o.bpm, long = beat * (0.5 + (o.swing || 0) * 0.1667); return i % 2 === 0 ? long : beat - long; };
     const tick = () => { const x = ctx(); while (next < x.currentTime + 0.14) { const d = dur(step); o.onStep(step, next, d); next += d; step++; } };
-    this.start = () => { this.stop(); A.stopAll(); const x = ctx(); next = x.currentTime + 0.1; step = 0; timer = setInterval(tick, 25); A.loops.add(this); tick(); this.on = true; };
-    this.stop = () => { if (timer) clearInterval(timer); timer = null; A.loops.delete(this); const was = this.on; this.on = false; if (was && o.onStop) o.onStop(); if (this._sync) this._sync(); };
+    this.start = () => { this.stop(); A.stopAll(); const x = ctx(); next = x.currentTime + 0.1; step = 0; timer = setInterval(tick, 25); A.loops.add(this); tick(); this.on = true; A.wake(true); };
+    this.stop = () => { if (timer) clearInterval(timer); timer = null; A.loops.delete(this); const was = this.on; this.on = false; if (was && o.onStop) o.onStop(); if (this._sync) this._sync(); if (!A.loops.size) A.wake(false); };
     this.toggle = () => (this.on ? this.stop() : this.start());
+  };
+  /* l'écran du téléphone reste allumé tant qu'une boucle joue */
+  let lock = null;
+  A.wake = on => {
+    if (!navigator.wakeLock) return;
+    if (on && !lock) navigator.wakeLock.request('screen').then(l => { lock = l; l.addEventListener('release', () => (lock = null)); }, () => {});
+    if (!on && lock) { lock.release().catch(() => {}); lock = null; }
+  };
+  /* lecteur d'événements datés (en secondes), interrompable : ev = [[t, fn(tAudio)], …] */
+  A.Player = function (ev, onEnd) {
+    let timer = null, i = 0, t0 = 0;
+    const tick = () => { const x = ctx(); while (i < ev.length && t0 + ev[i][0] < x.currentTime + 0.18) { ev[i][1](t0 + ev[i][0]); i++; } if (i >= ev.length) { const end = t0 + ev[ev.length - 1][0]; A.at(end + 0.6, () => this.stop()); clearInterval(timer); timer = null; } };
+    this.start = () => { A.stopAll(); const x = ctx(); t0 = x.currentTime + 0.12; i = 0; this.on = true; A.loops.add(this); A.wake(true); timer = setInterval(tick, 40); tick(); };
+    this.stop = () => { if (timer) clearInterval(timer); timer = null; A.loops.delete(this); const was = this.on; this.on = false; if (was && onEnd) onEnd(); if (!A.loops.size) A.wake(false); };
   };
   A.at = (t, fn) => { const id = setTimeout(() => { A.timers.delete(id); fn(); }, Math.max(0, (t - (c ? c.currentTime : 0)) * 1000)); A.timers.add(id); return id; };
   A.after = (ms, fn) => { const id = setTimeout(() => { A.timers.delete(id); fn(); }, ms); A.timers.add(id); return id; };

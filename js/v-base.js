@@ -32,7 +32,8 @@
 <h2>Mode d'emploi</h2>
 <p><strong>La tonalité en haut de page commande tout le site.</strong> Change-la et chaque exemple, chaque clavier, chaque grille se transpose. C'est voulu : n'apprends rien en Do seulement.</p>
 <p><strong>Les accords s'écrivent en lettres</strong> (C, Am, F…), comme sur les sites de grilles. Les notes s'affichent en Do-Ré-Mi ou en lettres, au choix dans les réglages. C = Do, D = Ré, E = Mi, F = Fa, G = Sol, A = La, B = Si.</p>
-<p><strong>Branche ton piano numérique en USB</strong> (Chrome ou Edge) : les touches que tu joues s'allument sur les claviers du site, et les exercices d'oreille acceptent tes réponses jouées. Sans câble, clique sur les claviers à l'écran.</p>
+<p><strong>Le site peut écouter ton piano.</strong> Sur téléphone, touche « Micro » en haut de page : les notes que tu joues s'allument sur les claviers et servent de réponse dans les exercices d'oreille (une note à la fois ; il n'entend pas les accords). Sur ordinateur, un piano numérique branché en USB fait la même chose en MIDI (Chrome ou Edge).</p>
+<p><strong>Sur téléphone, ajoute le site à l'écran d'accueil</strong> (menu du navigateur, « Sur l'écran d'accueil ») : il s'ouvre en plein écran et fonctionne ensuite sans connexion.</p>
 <p><strong>Le son</strong> est un vrai piano à queue échantillonné, téléchargé au premier clic ; hors connexion, un synthé prend le relais. Tes réglages, tes scores et ta série restent dans ton navigateur, rien n'est envoyé nulle part.</p>`));
     },
   };
@@ -87,15 +88,15 @@
 <p>Empile deux tierces sur chaque note de la gamme : tu obtiens sept accords, et leur nature ne change jamais. <b>I, IV, V sont majeurs ; ii, iii, vi sont mineurs ; vii° est diminué.</b> Majuscule pour majeur, minuscule pour mineur. Chacun a un rôle : repos (tonique), départ (sous-dominante), tension (dominante). Une grille de chanson est presque toujours un aller-retour repos → départ → tension → repos.</p>`));
 
       let sev = false, lab = P.S.lab, curChord = null;
-      const kbHost = h('div'); const kb = new P.Keyboard(kbHost, { from: 48, to: 84 });
+      const kbHost = h('div'); const kb = new P.Keyboard(kbHost, { from: 48, to: 84, mob: [48, 72] }), vc = P.mob ? 64 : 68;
       const draw = () => {
-        const base = P.marksScale(tonic, 'major', 48, 84, lab).map(x => ({ ...x, c: x.c === 'c' && !curChord ? 'c' : 'g' }));
+        const base = P.marksScale(tonic, 'major', kb.from, kb.to, lab).map(x => ({ ...x, c: x.c === 'c' && !curChord ? 'c' : 'g' }));
         if (!curChord) return kb.mark(base);
-        const ms = [T.lowIn(curChord.rpc, 48), ...T.closeVoicing(curChord, 68)];
+        const ms = [T.lowIn(curChord.rpc, 48), ...T.closeVoicing(curChord, vc)];
         kb.mark([...base, ...ms.map(m => ({ m, c: m % 12 === curChord.rpc ? 'c' : 'a', t: lab === 'note' ? T.fmt(T.SIMPLE[m % 12]) : T.fmtDeg(T.ROMDEG[T.mod(m - kpc)]) }))]);
       };
       const chips = h('div', { class: 'chips' });
-      const playCh = c => { curChord = c; draw(); A.piano(T.lowIn(c.rpc, 48), 0, 1.6, 0.6); A.chord(T.closeVoicing(c, 68), 0, 1.6, 0.5, 0.015); };
+      const playCh = c => { curChord = c; draw(); A.piano(T.lowIn(c.rpc, 48), 0, 1.6, 0.6); A.chord(T.closeVoicing(c, vc), 0, 1.6, 0.5, 0.015); };
       const drawChips = () => {
         chips.innerHTML = '';
         (sev ? R7 : R3).forEach((r, i) => { const c = T.romanToChord(r, tonic); chips.append(h('button', { class: 'chip fn-' + FN[i], type: 'button', onclick: () => playCh(c) }, h('b', {}, T.roman(c, kpc)), h('span', {}, T.chordName(c)))); });
@@ -163,7 +164,7 @@
       const out = h('div', { class: 'tx-out' }), info = h('p', { class: 'hint' });
       let src = 'auto', flat = [], playing = null;
       const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 36, to: 84 });
-      const show = c => kb.mark(P.marksChord(c, [T.lowIn(c.bass ? c.bpc : c.rpc, 36), ...T.closeVoicing(c, 64)], P.S.lab));
+      const show = c => kb.mark(P.marksChord(c, [T.lowIn(c.bass ? c.bpc : c.rpc, P.mob ? 48 : 36), ...T.closeVoicing(c, 64)], P.S.lab));
       const srcSel = h('span');
       function run() {
         P.S.tx = ta.value; P.save(); out.innerHTML = ''; flat = [];
@@ -219,13 +220,13 @@
     render(el) {
       const tonic = P.tonic(), kpc = P.S.key, tn = T.fmt(tonic);
       let id = P.S.mode && T.SCALES[P.S.mode] ? P.S.mode : 'dorian', lab = P.S.lab, bpm = 92;
-      const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 48, to: 84 }), info = h('div', { class: 'mode-info' });
+      const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 48, to: 84, mob: [48, 72] }), info = h('div', { class: 'mode-info' });
       const band = new P.Band({ bars: [], get bpm() { return bpm; }, feel: 'pop' });
       const groups = {}; Object.entries(T.SCALES).forEach(([k, s]) => (groups[s.g] = groups[s.g] || []).push([k, s.n]));
       const selHost = h('span');
       const draw = () => {
         const s = T.SCALES[id], degs = T.scaleDegs(id);
-        kb.mark(P.marksScale(tonic, id, 48, 84, lab).map(x => { const d = degs.find(q => T.mod(kpc + q.semi) === x.m % 12); return d.t === s.ch ? { ...x, c: 'b' } : x; }));
+        kb.mark(P.marksScale(tonic, id, kb.from, kb.to, lab).map(x => { const d = degs.find(q => T.mod(kpc + q.semi) === x.m % 12); return d.t === s.ch ? { ...x, c: 'b' } : x; }));
         const maj = T.scaleSemis('major');
         info.innerHTML = '';
         info.append(h('h3', {}, tn + ' ' + s.n.toLowerCase()),
@@ -238,7 +239,7 @@
       };
       const pick = v => { id = v; P.S.mode = v; P.save(); draw(); };
       const listen = () => {
-        const r = T.lowIn(kpc, 55), semis = T.scaleSemis(id), up = [...semis, 12], seq = [...up, ...up.slice(0, -1).reverse()];
+        const r = T.lowIn(kpc, P.mob ? 48 : 55), semis = T.scaleSemis(id), up = [...semis, 12], seq = [...up, ...up.slice(0, -1).reverse()];
         const t0 = A.seq(seq.map((s, i) => [r + s, i * 0.26, 0.36]));
         seq.forEach((s, i) => A.at(t0 + i * 0.26, () => kb.live([r + s]))); A.at(t0 + seq.length * 0.26, () => kb.live([]));
       };

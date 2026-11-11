@@ -5,6 +5,7 @@
   try { P.S = Object.assign({}, DEF, JSON.parse(localStorage.getItem('douze') || '{}')); } catch (e) { P.S = Object.assign({}, DEF); }
   P.save = () => { try { localStorage.setItem('douze', JSON.stringify(P.S)); } catch (e) { /* stockage indisponible */ } };
   P.views = {};
+  Object.defineProperty(P, 'mob', { get: () => window.matchMedia('(max-width: 700px)').matches });
   P.kbs = new Set();
   P.tonic = () => T.KEYS[P.S.key];
 
@@ -56,30 +57,51 @@
   /* ---------- clavier ---------- */
   const isB = m => [1, 3, 6, 8, 10].includes(m % 12);
   P.Keyboard = function (host, o = {}) {
-    const from = o.from || 48, to = o.to || 84, keys = {};
-    const whites = []; for (let m = from; m <= to; m++) if (!isB(m)) whites.push(m);
-    const W = 100 / whites.length;
-    const inner = h('div', { class: 'kb-in', style: `min-width:${whites.length * (o.minKey || 20)}px` });
-    const wrap = h('div', { class: 'kb' + (o.small ? ' kb-s' : '') }, inner);
-    for (let m = from; m <= to; m++) {
-      const b = isB(m), wi = whites.filter(w => w < m).length;
-      const k = h('div', { class: 'k ' + (b ? 'kbk' : 'kw'), style: b ? `left:${wi * W - W * 0.3}%;width:${W * 0.6}%` : `left:${wi * W}%;width:${W}%` }, h('i'));
-      k.addEventListener('pointerdown', e => { e.preventDefault(); P.A.piano(m, 0, 1.4, 0.75); P.noteIn(m, 'click', this); });
-      keys[m] = k; inner.append(k);
-    }
+    const mob = P.mob, fit = mob && !o.mob;
+    let keys = {}, from, to;
+    const inner = h('div', { class: 'kb-in' });
+    const wrap = h('div', { class: 'kb' + (o.small ? ' kb-s' : '') + (o.onNote ? ' kb-play' : '') }, inner);
+    const build = (f, t) => {
+      from = f; to = t; keys = {}; inner.innerHTML = '';
+      const whites = []; for (let m = f; m <= t; m++) if (!isB(m)) whites.push(m);
+      const W = 100 / whites.length;
+      inner.style.setProperty('--n', whites.length);
+      inner.style.minWidth = mob ? '0' : whites.length * (o.minKey || 20) + 'px';
+      for (let m = f; m <= t; m++) {
+        const b = isB(m), wi = whites.filter(w => w < m).length;
+        const k = h('div', { class: 'k ' + (b ? 'kbk' : 'kw'), style: b ? `left:${wi * W - W * 0.3}%;width:${W * 0.6}%` : `left:${wi * W}%;width:${W}%` }, h('i'));
+        k.addEventListener('pointerdown', e => { e.preventDefault(); P.A.piano(m, 0, 1.4, 0.75); P.noteIn(m, 'click', this); });
+        keys[m] = k; inner.append(k);
+      }
+      this.from = f; this.to = t;
+    };
+    const init = mob && o.mob ? o.mob : fit ? [48, 72] : [o.from || 48, o.to || 84];
+    build(init[0], init[1]);
     host.append(wrap);
-    this.from = from; this.to = to; this.o = o;
+    this.o = o;
+    this.setRange = (f, t) => { if (f !== from || t !== to) build(f, t); };
     this.clear = () => { for (const m in keys) { keys[m].className = keys[m].className.replace(/ mk\S*/g, '').replace(' live', ''); keys[m].firstChild.textContent = ''; } };
-    this.mark = list => { this.clear(); const mp = new Map(); list.forEach(x => mp.set(x.m, x)); mp.forEach(x => { const k = keys[x.m]; if (!k) return; k.className += ' mk mk-' + (x.c || 'a'); k.firstChild.textContent = x.t == null ? '' : x.t; }); };
+    this.mark = list => {
+      if (fit && list.length) {
+        /* sur téléphone, le clavier se recadre sur les notes à montrer */
+        const mn = Math.min(...list.map(x => x.m)), mx = Math.max(...list.map(x => x.m));
+        let lo = Math.floor(mn / 12) * 12; if (mn % 12 >= 5) lo += 5;
+        let hi = mx; while (!(hi % 12 === 4 || hi % 12 === 11) || hi - lo < 16) hi++;
+        this.setRange(lo, hi);
+      }
+      this.clear(); const mp = new Map(); list.forEach(x => mp.set(x.m, x));
+      mp.forEach(x => { const k = keys[x.m]; if (!k) return; k.className += ' mk mk-' + (x.c || 'a'); k.firstChild.textContent = x.t == null ? '' : x.t; });
+    };
     this.live = ms => { for (const m in keys) keys[m].classList.toggle('live', ms.includes(+m)); };
     this.flash = (m, cls = 'hit', ms = 260) => { const k = keys[m]; if (!k) return; k.classList.add(cls); setTimeout(() => k.classList.remove(cls), ms); };
     P.kbs.add(this);
   };
-  /* toute note jouée (clic ou MIDI) passe ici */
+  /* toute note jouée (clic, MIDI ou micro) passe ici */
   P.noteIn = (m, src, kb) => {
-    if (src === 'midi') { if (P.S.midiSound) P.A.piano(m, 0, 1.2, 0.75); P.kbs.forEach(k => { k.flash(m); if (k.o.onNote) k.o.onNote(m); }); return; }
-    else kb.flash(m);
-    if (kb && kb.o.onNote) kb.o.onNote(m); else if (P.noteCb) P.noteCb(m);
+    if (src === 'click') { kb.flash(m); if (kb.o.onNote) kb.o.onNote(m, src); else if (P.noteCb) P.noteCb(m, src); return; }
+    if (src === 'midi' && P.S.midiSound) P.A.piano(m, 0, 1.2, 0.75);
+    P.kbs.forEach(k => { k.flash(m); if (k.o.onNote) k.o.onNote(m, src); });
+    if (P.noteCb) P.noteCb(m, src);
   };
   P.midiInit = () => {
     if (!navigator.requestMIDIAccess) { P.midiState = 'non pris en charge par ce navigateur'; return; }

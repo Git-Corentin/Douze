@@ -62,7 +62,7 @@
         cols.innerHTML = ''; kbs.length = 0;
         bars2 = T.parseGrid(grid2(), tonic);
         voic().forEach(({ c, v }) => {
-          const host = h('div'), k = new P.Keyboard(host, { from: 36, to: 72, small: true, minKey: 11 });
+          const host = h('div'), k = new P.Keyboard(host, { from: 36, to: 72, small: true, minKey: 11, mob: st2 === 'guide' ? [36, 64] : [41, 71] });
           k.mark(v.map(x => ({ m: x.m, c: x.deg === '1' ? 'c' : x.deg === T.vTokens(c).sev ? 'b' : 'a', t: lab === 'note' ? T.fmt(T.simplify(T.spell(c.root, x.deg))) : T.fmtDeg(x.deg) })));
           kbs.push(k); cols.append(h('div', { class: 'tri-c' }, h('strong', {}, T.chordName(c)), h('span', {}, T.roman(c, kpc)), host));
         });
@@ -179,7 +179,7 @@
       const out = h('div', { class: 'bars' }), why = h('ol', { class: 'why' }), info = h('p', { class: 'hint' });
       const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 36, to: 84 });
       const band = new P.Band({ bars: [], get bpm() { return bpm; }, get feel() { return feel; },
-        onChord(c, bar, v) { out.querySelectorAll('.on').forEach(x => x.classList.remove('on')); if (c._el) c._el.classList.add('on'); kb.mark([{ m: T.lowIn(c.rpc, 36), c: 'c', t: lab === 'note' ? T.fmt(c.root) : '1' }, ...vMarks(v, c, lab)]); },
+        onChord(c, bar, v) { out.querySelectorAll('.on').forEach(x => x.classList.remove('on')); if (c._el) c._el.classList.add('on'); kb.mark([...(P.mob ? [] : [{ m: T.lowIn(c.rpc, 36), c: 'c', t: lab === 'note' ? T.fmt(c.root) : '1' }]), ...vMarks(v, c, lab)]); },
         onStop() { out.querySelectorAll('.on').forEach(x => x.classList.remove('on')); } });
       function run() {
         P.S.jz = ta.value === def ? '' : ta.value; P.save(); out.innerHTML = ''; why.innerHTML = '';
@@ -189,7 +189,7 @@
         info.textContent = `Tonalité détectée : ${T.fmt(t)} majeur. Une mesure par accord, sauf si tu écris des barres.`;
         res = jazzify(src, kpc, t, level); band.bars = res.bars;
         const chip = c => (c._el = h('button', { type: 'button', class: 'bch' + (c.ins ? ' ins' : ''), onclick: () => {
-          const v = T.voicing(c, 'auto'); kb.mark([{ m: T.lowIn(c.rpc, 36), c: 'c', t: '1' }, ...vMarks(v, c, lab)]);
+          const v = T.voicing(c, 'auto'); kb.mark([...(P.mob ? [] : [{ m: T.lowIn(c.rpc, 36), c: 'c', t: '1' }]), ...vMarks(v, c, lab)]);
           A.piano(T.lowIn(c.rpc, 36), 0, 1.6, 0.5); A.chord(v.map(x => x.m), A.now() + 0.25, 1.6, 0.5, 0.015);
         } }, h('b', {}, T.chordName(c)), h('i', {}, T.roman(c, kpc))));
         res.bars.forEach((b, i) => out.append(h('div', { class: 'bar' }, h('small', {}, src[i].map(T.chordName).join(' ')), h('div', { class: 'bar-c' }, b.map(chip)))));
@@ -335,7 +335,7 @@
       let gid = P.S.grid || 'iiVI', feel = null, bpm = 120, kpc = P.S.key, cycle = false, custom = P.S.gcustom || 'Dm7 G7 | Cmaj7 A7', lab = P.S.lab;
       const parts = { comp: true, bass: true, drums: true };
       const gridEl = h('div', { class: 'bars' }), info = h('div', { class: 'now' }), desc = h('p');
-      const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 36, to: 84 });
+      const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 36, to: 84, mob: [60, 83] });
       const o = { bars: [], get bpm() { return bpm; }, get feel() { return feel; }, get comp() { return parts.comp; }, get bass() { return parts.bass; }, get drums() { return parts.drums; }, countIn: true };
       const band = new P.Band(o);
       const custHost = h('div');
@@ -350,8 +350,8 @@
       const showChord = (c, v) => {
         const sid = T.chordScale(c, kpc), pcs = T.chordSemis(c.q).map(s => T.mod(c.rpc + s));
         const root = T.SIMPLE[c.rpc];
-        const sc = P.marksScale(c.root, sid, 60, 84, 'none').map(x => { const semi = T.mod(x.m - c.rpc), strong = pcs.includes(x.m % 12); return { m: x.m, c: strong ? 'a' : 'g', t: lab === 'note' ? T.fmt(T.SIMPLE[x.m % 12]) : T.DEGNAMES[semi] }; });
-        kb.mark([...sc, ...v.map(x => ({ m: x.m, c: 'b', t: T.fmtDeg(x.deg) })), { m: T.lowIn(c.rpc, 36), c: 'c', t: '1' }]);
+        const sc = P.marksScale(c.root, sid, 60, kb.to, 'none').map(x => { const semi = T.mod(x.m - c.rpc), strong = pcs.includes(x.m % 12); return { m: x.m, c: strong ? 'a' : 'g', t: lab === 'note' ? T.fmt(T.SIMPLE[x.m % 12]) : T.DEGNAMES[semi] }; });
+        kb.mark(P.mob ? sc : [...sc, ...v.map(x => ({ m: x.m, c: 'b', t: T.fmtDeg(x.deg) })), { m: T.lowIn(c.rpc, 36), c: 'c', t: '1' }]);
         info.innerHTML = ''; info.append(h('strong', {}, T.chordName(c)), h('span', {}, 'gamme : ' + T.fmt(root) + ' ' + T.SCALES[sid].n.toLowerCase().replace(/ \(.*/, '')));
       };
       o.onChord = (c, bar, v) => { gridEl.querySelectorAll('.on').forEach(x => x.classList.remove('on')); if (c._el) c._el.classList.add('on'); showChord(c, v); };
@@ -369,7 +369,7 @@
       el.append(P.tool('La rythmique',
         P.row(P.field('Grille', P.sel([...GRIDS.map(g => [g[0], g[1]]), ['custom', 'Ma propre grille…']], gid, pickGrid)), P.field('Style', feelHost), P.tempo('grid', 120, v => (bpm = v))),
         custHost, desc, gridEl, info, kbHost,
-        h('p', { class: 'legend' }, h('span', { class: 'lg mk-a' }, 'notes de l\'accord'), h('span', { class: 'lg mk-g' }, 'reste de la gamme'), h('span', { class: 'lg mk-b' }, 'voicing joué par le piano'), h('span', { class: 'lg mk-c' }, 'basse')),
+        h('p', { class: 'legend' }, h('span', { class: 'lg mk-a' }, 'notes de l\'accord'), h('span', { class: 'lg mk-g' }, 'reste de la gamme'), P.mob ? null : h('span', { class: 'lg mk-b' }, 'voicing joué par le piano'), P.mob ? null : h('span', { class: 'lg mk-c' }, 'basse')),
         P.row(P.playToggle(band.loop, ['Lancer (décompte de 4)', 'Arrêter']), P.seg([[false, 'Même tonalité'], [true, 'Une quarte plus haut à chaque tour']], cycle, v => (cycle = v))),
         P.row(P.field('Piano', tog('comp', 'joue')), P.field('Basse', tog('bass', 'joue')), P.field('Batterie', tog('drums', 'joue')), P.labSeg(v => { lab = v; build(); }))));
       pickGrid(GRIDS.some(g => g[0] === gid) || gid === 'custom' ? gid : 'iiVI');

@@ -40,18 +40,18 @@
     degres(host) {
       let set = '135', keyMode = 'fixe', lastPc = -1;
       const SETS = { '135': ['1', '3', '5'], '15': ['1', '2', '3', '4', '5'], '7': ['1', '2', '3', '4', '5', '6', '7'], '12': T.ROMDEG, min: ['1', '2', 'b3', '4', '5', 'b6', 'b7'] };
-      const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 48, to: 84, onNote: m => { const q = g.q; if (!q || q.done) return; const d = SETS[set].find(x => T.parseDeg(x).semi === T.mod(m - q.pc)); if (d) g.answer(d); } });
+      const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 48, to: 84, mob: [48, 72], onNote: m => { const q = g.q; if (!q || q.done) return; const d = SETS[set].find(x => T.parseDeg(x).semi === T.mod(m - q.pc)); if (d) g.answer(d); } });
       const g = mcq(host, {
         id: 'degres',
         opts: () => SETS[set].map(d => ({ k: d, l: T.fmtDeg(d), s: DEGN[d] })),
         settings: P.row(P.field('Notes à reconnaître', P.sel([['135', '1, 3, 5'], ['15', '1 à 5'], ['7', 'Toute la gamme majeure'], ['min', 'Gamme mineure'], ['12', 'Les douze notes']], set, v => { set = v; lastPc = -1; })),
           P.field('Tonalité', P.seg([['fixe', 'Celle du site'], ['alea', 'Change à chaque fois']], keyMode, v => { keyMode = v; lastPc = -1; }))),
         extra: P.btn('Rejouer la cadence', () => { const q = g.q; if (q) { lastPc = -1; q.play(); } }),
-        kb: h('div', {}, h('p', { class: 'hint' }, 'Tu peux aussi répondre en jouant la note, à l\'écran ou sur ton piano branché.'), kbHost),
+        kb: h('div', {}, h('p', { class: 'hint' }, 'Tu peux aussi répondre en jouant la note : à l\'écran, sur ton piano branché en MIDI, ou sur ton vrai piano en activant le micro (n\'importe quelle octave).'), kbHost),
         onAsk: () => kb.clear(),
         make() {
           const pc = keyMode === 'fixe' ? P.S.key : rnd(0, 11), minor = set === 'min', d = P.pick(SETS[set]), semi = T.parseDeg(d).semi;
-          const tonic = T.lowIn(pc, 55), m = tonic + semi + (Math.random() < 0.3 && tonic + semi + 12 <= 80 ? 12 : 0);
+          const tonic = T.lowIn(pc, P.mob ? 48 : 55), m = tonic + semi + (!P.mob && Math.random() < 0.3 && tonic + semi + 12 <= 80 ? 12 : 0);
           return { pc, ans: d,
             play(again) { let t = A.now() + 0.05; if (pc !== lastPc && !again) { t = cadence(pc, minor, t); lastPc = pc; } A.piano(m, t, 1.4, 0.75); },
             after() {
@@ -135,25 +135,28 @@
     melodie(host) {
       let len = 4, scale = 'pentMaj', keyMode = 'fixe', first = true, q = null, pos = 0, errs = 0;
       const fb = h('p', { class: 'fb', 'aria-live': 'polite' }, 'Appuie sur « Nouvelle mélodie », écoute, puis rejoue-la sur le clavier.'), dots = h('div', { class: 'dots' });
-      const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 48, to: 88, onNote: m => {
+      const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 48, to: 88, mob: [48, 72], onNote: (m, src) => {
         if (!q || q.done) return;
-        if (m === q.notes[pos]) { pos++; drawDots(); if (pos === q.notes.length) { q.done = true; P.stat('melodie', String(len) + ' notes', errs === 0); fb.textContent = errs ? `Trouvée, avec ${errs} hésitation${errs > 1 ? 's' : ''}.` : 'Du premier coup.'; fb.className = 'fb ok'; A.after(1300, ask); } }
-        else { errs++; kb.flash(m, 'bad', 350); fb.textContent = m > q.notes[pos] ? 'Trop haut.' : 'Trop bas.'; fb.className = 'fb ko'; }
+        if (m === q.notes[pos] || (src === 'mic' && (m - q.notes[pos]) % 12 === 0)) { pos++; drawDots(); if (pos === q.notes.length) { q.done = true; P.stat('melodie', String(len) + ' notes', errs === 0); fb.textContent = errs ? `Trouvée, avec ${errs} hésitation${errs > 1 ? 's' : ''}.` : 'Du premier coup.'; fb.className = 'fb ok'; A.after(1300, ask); } }
+        else if (src === 'mic' && pos > 0 && (m - q.notes[pos - 1]) % 12 === 0) { /* résonance de la note précédente */ } else { errs++; kb.flash(m, 'bad', 350); fb.textContent = m > q.notes[pos] ? 'Trop haut.' : 'Trop bas.'; fb.className = 'fb ko'; }
       } });
       const drawDots = () => { dots.innerHTML = ''; q.notes.forEach((_, i) => dots.append(h('i', { class: i < pos ? 'on' : '' }))); };
       const play = () => { const t = A.now() + 0.05; A.chord([q.tonic - 12, q.tonic, q.tonic + 7], t, 0.7, 0.35); q.notes.forEach((m, i) => A.piano(m, t + 1 + i * 0.5, 0.55, 0.7)); };
       const ask = () => {
         const pc = keyMode === 'fixe' ? P.S.key : rnd(0, 11), tonic = T.lowIn(pc, 60), semis = T.scaleSemis(scale), pool = [];
-        for (let m = tonic - 5; m <= tonic + 16; m++) if (semis.includes(T.mod(m - tonic))) pool.push(m);
+        let lo = tonic - 5, hi = tonic + 16;
+        if (P.mob) { const c = Math.floor((tonic - 3) / 12) * 12; kb.setRange(c, c + 24); lo = Math.max(lo, c); hi = Math.min(tonic + 12, c + 24); }
+        for (let m = lo; m <= hi; m++) if (semis.includes(T.mod(m - tonic))) pool.push(m);
         let i = pool.indexOf(tonic + P.pick(semis.filter(s => [0, 4, 3, 7].includes(s)))); const notes = [pool[i]];
         while (notes.length < len) { const j = i + P.pick([-2, -1, -1, 1, 1, 2]); if (j < 0 || j >= pool.length) continue; i = j; notes.push(pool[i]); }
         q = { notes, tonic, pc }; pos = 0; errs = 0; fb.textContent = 'Écoute, chante-la intérieurement, puis joue.'; fb.className = 'fb'; drawDots();
-        kb.mark(first ? [{ m: notes[0], c: 'c', t: 'départ' }] : []); play();
+        kb.mark(first ? [{ m: notes[0], c: 'c', t: 'ici' }] : []); play();
       };
       host.append(P.row(P.field('Longueur', P.sel([3, 4, 5, 6, 8].map(n => [n, n + ' notes']), len, v => (len = +v))),
         P.field('Gamme', P.sel([['pentMaj', 'Pentatonique majeure'], ['major', 'Majeure'], ['aeolian', 'Mineure'], ['dorian', 'Dorien'], ['blues', 'Blues']], scale, v => (scale = v))),
         P.field('Tonalité', P.seg([['fixe', 'Celle du site'], ['alea', 'Au hasard']], keyMode, v => (keyMode = v))),
         P.field('Première note', P.seg([[true, 'Montrée'], [false, 'Cachée']], first, v => (first = v)))),
+        h('p', { class: 'hint' }, 'Réponds au clavier ci-dessous, en MIDI, ou sur ton piano avec le micro : une note à la fois, bien détachée.'),
         P.row(P.btn('Nouvelle mélodie', ask, 'solid'), P.btn('Réécouter', () => q && play())), fb, dots, kbHost);
     },
   };
@@ -164,8 +167,10 @@
     ['intervalles', 'Intervalles', "La distance entre deux notes, hors de toute tonalité. Utile en complément, surtout pour les sauts dans une mélodie."],
     ['modes', 'Modes', "Une gamme monte et descend sur un bourdon : quel mode ? Cherche la note caractéristique."]];
 
+  P.earGames = GAMES; P.earTabs = TABS;
+
   P.views.oreille = {
-    key: 'Si', t: 'Oreille relative', d: "Reconnaître les degrés, les accords et les suites d'accords, sans jamais nommer une note absolue.",
+    key: 'Si', t: 'Oreille relative', d: "Reconnaître les degrés, trouver les accords sous une mélodie, identifier les suites d'accords : de quoi te passer des sites de grilles.",
     lead: "L'oreille relative n'est pas un don : c'est la mémoire du caractère de chaque degré par rapport à une tonique. Beaucoup de pédagogues le constatent : on progresse plus vite en reconnaissant des degrés dans une tonalité qu'en devinant des intervalles isolés.",
     render(el) {
       let tab = P.S.ear && GAMES[P.S.ear] ? P.S.ear : 'degres';

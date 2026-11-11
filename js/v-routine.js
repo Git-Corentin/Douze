@@ -27,57 +27,84 @@
     ['Jouer', 'grilles', 0.15, () => `Une grille, la rythmique, et aucune consigne. C'est la récompense, et c'est là que tout se mélange.`],
   ];
 
+  /* ----- chrono de séance : vit en dehors des pages, survit aux changements de page et au rechargement ----- */
+  const fmtT = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  const pill = h('div', { class: 'pill', hidden: true });
+  document.body.append(pill);
+  const Se = (P.session = {
+    onTick: null,
+    secs: i => Math.round(((P.S.dur || 20) * 60 * BLOCKS[i][2]) / 30) * 30,
+    done() { const d = P.today(); Object.keys(P.S.done).forEach(k => { if (k !== d) delete P.S.done[k]; }); return (P.S.done[d] = P.S.done[d] || {}); },
+    left() { const t = P.S.timer; return !t ? 0 : t.on ? Math.max(0, Math.ceil((t.end - Date.now()) / 1000)) : t.left; },
+    start(i) { A.ctx(); P.S.timer = { i, on: true, end: Date.now() + Se.secs(i) * 1000, left: Se.secs(i), day: P.today() }; P.save(); Se.draw(); },
+    pause() { const t = P.S.timer; if (!t || !t.on) return; t.left = Se.left(); t.on = false; P.save(); Se.draw(); },
+    resume() { const t = P.S.timer; if (!t || t.on) return; A.ctx(); t.end = Date.now() + t.left * 1000; t.on = true; P.save(); Se.draw(); },
+    stop() { P.S.timer = null; P.save(); Se.draw(); },
+    check(i, v) {
+      const done = Se.done(), day = P.today(); done[i] = v;
+      if (BLOCKS.every((_, k) => done[k]) && P.S.streak.last !== day) {
+        const y = new Date(Date.now() - 864e5), ys = y.getFullYear() + '-' + String(y.getMonth() + 1).padStart(2, '0') + '-' + String(y.getDate()).padStart(2, '0');
+        P.S.streak = { n: P.S.streak.last === ys ? P.S.streak.n + 1 : 1, last: day };
+      }
+      P.save();
+    },
+    tick() {
+      const t = P.S.timer;
+      if (t && t.day !== P.today()) { P.S.timer = null; P.save(); }
+      else if (t && t.on && Se.left() <= 0) {
+        P.S.timer = null; Se.check(t.i, true);
+        try { A.seq([[72, 0, 0.5], [76, 0.18, 0.5], [79, 0.36, 0.9]]); } catch (e) { /* pas de son sans geste */ }
+        if (navigator.vibrate) navigator.vibrate([120, 80, 120]);
+        Se.draw(true);
+      }
+      const b = pill.querySelector('b'); if (b && P.S.timer) b.textContent = fmtT(Se.left());
+      if (Se.onTick) Se.onTick();
+    },
+    draw(finished) {
+      const t = P.S.timer; pill.hidden = !t; pill.innerHTML = '';
+      if (t) pill.append(h('a', { href: '#/routine', title: 'Revenir à la séance' }, (t.i + 1) + '. ' + BLOCKS[t.i][0]), h('b', {}, fmtT(Se.left())),
+        P.btn(t.on ? 'Pause' : 'Reprendre', () => (t.on ? Se.pause() : Se.resume())), h('button', { type: 'button', class: 'pill-x', 'aria-label': 'Arrêter le chrono', onclick: Se.stop }, '×'));
+      if (Se.onDraw) Se.onDraw(finished);
+    },
+  });
+  setInterval(Se.tick, 500); Se.draw();
+
   P.views.routine = {
     key: 'Do♯', t: 'Séance du jour', d: "Un plan de travail minuté, dans la tonalité du jour, avec ta série en cours.",
     lead: "Vingt minutes structurées valent mieux que deux heures à rejouer ce qu'on sait déjà. La séance suit toujours le même ordre : les doigts, la tête, l'oreille, puis la musique.",
     render(el) {
       const kd = P.keyOfDay(), kn = T.fmt(T.KEYS[kd]), day = P.today();
-      let total = P.S.dur || 20, running = -1, left = 0, timer = null;
-      const done = (P.S.done[day] = P.S.done[day] || {});
-      Object.keys(P.S.done).forEach(d => { if (d !== day) delete P.S.done[d]; });
       const list = h('div', { class: 'blocks' }), head = h('div', { class: 'today' });
-      const fmtT = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-      const finish = () => {
-        if (BLOCKS.every((_, i) => done[i]) && P.S.streak.last !== day) {
-          const y = new Date(Date.now() - 864e5), ys = y.getFullYear() + '-' + String(y.getMonth() + 1).padStart(2, '0') + '-' + String(y.getDate()).padStart(2, '0');
-          P.S.streak = { n: P.S.streak.last === ys ? P.S.streak.n + 1 : 1, last: day };
-        }
-        P.save(); drawHead();
-      };
       const drawHead = () => {
         head.innerHTML = '';
         head.append(h('div', { class: 'today-k' }, h('span', { class: 'today-l' }, 'Tonalité du jour'), h('strong', {}, kn), h('span', { class: 'today-s' }, 'majeur')),
           h('div', { class: 'today-b' }, h('p', { class: 'today-c' }, h('b', {}, 'Défi du jour. '), P.challenge()),
             P.row(P.S.key === kd ? h('span', { class: 'hint' }, 'Le site est déjà réglé sur cette tonalité.') : P.btn('Passer le site en ' + kn, () => P.setKey(kd), 'solid'),
-              P.field('Durée', P.seg([[10, '10 min'], [20, '20 min'], [30, '30 min'], [45, '45 min']], total, v => { total = v; P.S.dur = v; P.save(); stop(); draw(); }))),
+              P.field('Durée', P.seg([[10, '10 min'], [20, '20 min'], [30, '30 min'], [45, '45 min']], P.S.dur || 20, v => { P.S.dur = v; P.save(); Se.stop(); }))),
             h('p', { class: 'hint' }, P.S.streak.n ? `Série : ${P.S.streak.n} jour${P.S.streak.n > 1 ? 's' : ''}` + (P.S.streak.last === day ? ', séance du jour terminée.' : '.') : 'Coche les six étapes pour démarrer une série.')));
       };
-      const stop = () => { if (timer) { clearInterval(timer); A.timers.delete(timer); } timer = null; running = -1; };
       const draw = () => {
-        list.innerHTML = '';
-        BLOCKS.forEach(([name, link, share, txt], i) => {
-          const secs = Math.round(total * 60 * share / 30) * 30;
-          const clock = h('span', { class: 'clock' }, fmtT(running === i ? left : secs));
-          const b = P.btn(running === i ? 'Pause' : 'Démarrer', () => {
-            if (running === i) { stop(); return draw(); }
-            stop(); running = i; left = secs; A.ctx();
-            timer = setInterval(() => { left--; const c = list.querySelector('.block.run .clock'); if (c) c.textContent = fmtT(Math.max(left, 0)); if (left <= 0) { stop(); done[i] = true; A.seq([[72, 0, 0.5], [76, 0.18, 0.5], [79, 0.36, 0.9]]); finish(); draw(); } }, 1000);
-            A.timers.add(timer); draw();
-          });
-          list.append(h('div', { class: 'block' + (running === i ? ' run' : '') + (done[i] ? ' done' : '') },
-            h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: !!done[i], onchange: e => { done[i] = e.target.checked; finish(); draw(); } }), h('span', {}, name)),
-            h('p', {}, txt(kn + ' majeur')), h('div', { class: 'block-a' }, clock, b, h('a', { class: 'btn', href: '#/' + link }, 'Ouvrir ' + P.views[link].t.toLowerCase()))));
+        const done = Se.done(), t = P.S.timer; list.innerHTML = '';
+        BLOCKS.forEach(([name, link, , txt], i) => {
+          const mine = t && t.i === i;
+          const b = P.btn(mine ? (t.on ? 'Pause' : 'Reprendre') : 'Démarrer', () => (mine ? (t.on ? Se.pause() : Se.resume()) : Se.start(i)), mine && t.on ? 'on' : '');
+          list.append(h('div', { class: 'block' + (mine ? ' run' : '') + (done[i] ? ' done' : '') },
+            h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: !!done[i], onchange: e => { Se.check(i, e.target.checked); drawHead(); draw(); } }), h('span', {}, name)),
+            h('p', {}, txt(kn + ' majeur')), h('div', { class: 'block-a' }, h('span', { class: 'clock' }, fmtT(mine ? Se.left() : Se.secs(i))), b,
+              mine ? P.btn('Remettre à zéro', Se.stop) : null, h('a', { class: 'btn', href: '#/' + link }, 'Ouvrir ' + P.views[link].t.toLowerCase()))));
         });
       };
+      Se.onDraw = () => { drawHead(); draw(); };
+      Se.onTick = () => { const c = list.querySelector('.block.run .clock'); if (c && P.S.timer) c.textContent = fmtT(Se.left()); };
       drawHead(); draw();
-      el.append(head, h('h2', { class: 'h2' }, 'Les six étapes'), list);
+      el.append(head, h('p', { class: 'hint' }, 'Le chrono te suit : démarre une étape, ouvre la page correspondante, il reste affiché en bas de l\'écran et sonne à la fin.'), h('h2', { class: 'h2' }, 'Les six étapes'), list);
       el.append(P.prose(`
 <h2>Un programme sur douze semaines</h2>
 <p>Si tu veux un fil conducteur, voici un ordre qui fonctionne. Chaque semaine, la séance quotidienne reste la même ; seul le contenu de chaque étape avance.</p>
 <ol>
-<li><b>Semaines 1 et 2.</b> Degrés : numéroter mélodies et accords de dix chansons que tu joues déjà. Oreille : 1, 3, 5. Main gauche : 1-5-8 et dixièmes sur le cycle des quartes.</li>
-<li><b>Semaines 3 et 4.</b> Les mêmes chansons dans trois tonalités chacune. Oreille : 1 à 5, suites I–IV–V–vi. Main gauche : la vague, par familles de formes.</li>
-<li><b>Semaines 5 et 6.</b> Accords de septième et coquilles dans les douze tonalités. Premier blues. Oreille : gamme entière, accords à trois sons.</li>
+<li><b>Semaines 1 et 2.</b> Degrés : numéroter mélodies et accords de dix chansons que tu joues déjà. Oreille : 1, 3, 5, puis harmoniser des mélodies avec I, IV, V. Main gauche : 1-5-8 et dixièmes sur le cycle des quartes.</li>
+<li><b>Semaines 3 et 4.</b> Les mêmes chansons dans trois tonalités chacune. Oreille : 1 à 5, harmoniser avec le vi, suites I–IV–V–vi. Main gauche : la vague, par familles de formes.</li>
+<li><b>Semaines 5 et 6.</b> Accords de septième et coquilles dans les douze tonalités. Premier blues. Oreille : gamme entière, accords à trois sons, airs connus à harmoniser en tonalité aléatoire.</li>
 <li><b>Semaines 7 et 8.</b> ii–V–I en coquilles puis sans fondamentale. Premier standard (thème et coquilles). Phrasé : swing, notes cibles, approche chromatique.</li>
 <li><b>Semaines 9 et 10.</b> Modes : dorien, mixolydien, lydien sur tapis. Deuxième standard. Encerclements, arpèges 3-5-7-9. Oreille : septièmes, suites avec emprunts.</li>
 <li><b>Semaines 11 et 12.</b> Extensions et altérations, substitution tritonique, Jazzifieur à la main. Relever quatre mesures d'un solo et les transposer. Troisième standard.</li>

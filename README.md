@@ -29,6 +29,8 @@ Ouvre simplement `index.html` dans Chrome, Edge ou Firefox.
 - **Son** : les notes de piano sont des échantillons du Salamander Grand Piano (Alexander Holm, CC BY 3.0) chargés depuis `tonejs.github.io`. Sans connexion, un synthé intégré prend le relais. Pour être autonome, copie les fichiers `C1…C7.mp3` et `Fs1…Fs6.mp3` dans un dossier du dépôt et change `SBASE` dans `js/audio.js`.
 - **Polices** : Anybody et Instrument Sans (Google Fonts).
 - **MIDI** : brancher un piano numérique en USB fonctionne dans Chrome et Edge (Web MIDI).
+- **Micro** : le bouton « Micro » fait écouter le piano par le téléphone (une note à la fois). Il exige une page en `https`, ce qui est le cas sur GitHub Pages ; en ouvrant `index.html` directement, il reste indisponible.
+- **Hors connexion** : `sw.js` met le site, les sons et les polices en cache ; sur téléphone, « Ajouter à l'écran d'accueil » l'installe comme une application. Après une mise à jour du dépôt, la nouvelle version apparaît au deuxième chargement.
 - **Données** : réglages, scores et série sont enregistrés dans le navigateur (`localStorage`), rien n'est envoyé.
 
 ## Organisation
@@ -37,5 +39,8 @@ Ouvre simplement `index.html` dans Chrome, Edge ou Firefox.
 - `js/audio.js` : piano, basse, batterie, boucles
 - `js/band.js` : section rythmique (walking bass, comping)
 - `js/ui.js` : clavier, commandes, MIDI
+- `js/mic.js` : détection de la note jouée au micro
+- `js/v-harmo.js` : exercice « accords d'une mélodie »
+- `sw.js`, `manifest.webmanifest`, `icons/` : installation et fonctionnement hors connexion
 - `js/v-*.js` : les pages
 - `js/app.js` : navigation

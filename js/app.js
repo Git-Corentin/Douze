@@ -36,12 +36,16 @@
         P.field('Son du piano', P.seg([[true, 'Piano à queue'], [false, 'Synthé']], P.S.samples, v => { P.S.samples = v; P.save(); if (v) A.loadSamples(); P.onSound(); })), snd,
         P.field('Clavier MIDI : faire sonner ses notes ici', P.seg([[false, 'Non'], [true, 'Oui']], P.S.midiSound, v => { P.S.midiSound = v; P.save(); })), midi,
         P.btn('Effacer mes scores et ma série', () => { P.S.stats = {}; P.S.streak = { n: 0, last: '' }; P.S.done = {}; P.save(); route(true); })));
-    bar.append(h('span', { class: 'keybar-l' }, 'Tonalité'), keys, set);
+    const micB = P.btn(P.mic.label(), () => P.mic.toggle(), 'mic' + (P.mic.on ? ' on' : ''));
+    P.onMic = () => { micB.textContent = P.mic.label(); micB.classList.toggle('on', P.mic.on); micS.textContent = 'Micro : ' + P.mic.state + '.'; };
+    const micS = h('span', { class: 'hint' }, 'Micro : ' + P.mic.state + '.');
+    set.querySelector('.settings-b').append(h('p', { class: 'hint' }, "Le micro reconnaît une note à la fois (pas les accords) et se met en pause pendant que le site joue. Pose le téléphone sur le piano, loin d'un bruit de fond."), micS);
+    bar.append(h('span', { class: 'keybar-l' }, 'Tonalité'), keys, h('div', { class: 'keybar-r' }, micB, set));
     return bar;
   }
   function route(keep) {
     const y = window.scrollY, open = !!document.querySelector('.settings[open]');
-    A.stopAll(); P.noteCb = null; P.kbs.clear();
+    A.stopAll(); P.noteCb = null; P.kbs.clear(); if (P.session) P.session.onTick = P.session.onDraw = null;
     const id = location.hash.replace(/^#\/?/, '') || 'accueil', v = P.views[id] || P.views.accueil, vid = P.views[id] ? id : 'accueil';
     main.innerHTML = '';
     const kb = keybar(); if (open && keep) kb.querySelector('details').open = true;
@@ -57,6 +61,8 @@
   P.setKey = pc => { P.S.key = pc; P.save(); route(true); };
   P.rerender = () => route(true);
   buildNav(); P.midiInit();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  let wasMob = P.mob; window.addEventListener('resize', () => { if (P.mob !== wasMob) { wasMob = P.mob; route(true); } });
   window.addEventListener('hashchange', () => route(false));
   route(false);
 })();
