@@ -66,14 +66,23 @@
   /* titres de partie : [Refrain], « Refrain : », « Refrain x2 », « (Refrain) »… */
   const SECW = 'refrain|chorus|couplet|verse|pont|bridge|intro|outro|pr[ée][- ]?refrain|pre[- ]?chorus|solo|instrumental|interlude|final|coda';
   const SECRE = new RegExp('^\\s*\\(?\\s*((?:' + SECW + ')(?:\\s*\\d+)?(?:\\s*(?:x\\s*\\d+|\\(x\\s*\\d+\\)|bis))?)\\s*\\)?\\s*:?\\s*$', 'i');
-  const headerOf = l => { let m = /^\s*\[([^\]]+)\]\s*$/.exec(l); if (m) return m[1].trim(); m = SECRE.exec(l); return m ? m[1].trim() : null; };
+  const isEnd = l => /^\s*\[\/[^\]]*\]\s*$/.test(l);
+  const headerOf = l => { if (isEnd(l)) return null; let m = /^\s*\[([^\]]+)\]\s*$/.exec(l); if (m) return m[1].trim(); m = SECRE.exec(l); return m ? m[1].trim() : null; };
   const normName = t => fold(t).replace(/\(?x\s*\d+\)?|bis|[():]/g, '').replace(/chorus/, 'refrain').replace(/verse/, 'couplet').replace(/bridge/, 'pont').replace(/\s+/g, ' ').trim();
   const kindOf = t => normName(t).replace(/\s*\d+/g, '');
   const hasBody = b => b.some(x => x.type === 'line' || x.type === 'tab');
   /* une partie écrite une fois, puis rappelée par son seul titre, est recopiée à l'endroit du rappel */
   function expand(lines) {
     const secs = []; lines.forEach((l, i) => { if (l.type === 'sec') secs.push(i); });
-    const body = i => { const k = secs.indexOf(i), b = lines.slice(i + 1, k + 1 < secs.length ? secs[k + 1] : lines.length); while (b.length && b[b.length - 1].type === 'blank') b.pop(); return b; };
+    /* Le contenu d'une partie commence juste sous son titre. Il s'arrête à la balise de fin [/Refrain] si elle existe,
+       sinon à la première ligne vide (un paragraphe), et de toute façon au titre suivant. */
+    const body = i => {
+      const k = secs.indexOf(i), stop = k + 1 < secs.length ? secs[k + 1] : lines.length, b = [];
+      const end = lines.findIndex((l, j) => j > i && j < stop && l.type === 'end');
+      for (let j = i + 1; j < (end < 0 ? stop : end); j++) { if (end < 0 && lines[j].type === 'blank') break; b.push(lines[j]); }
+      while (b.length && b[b.length - 1].type === 'blank') b.pop(); while (b.length && b[0].type === 'blank') b.shift();
+      return b;
+    };
     const defs = {};
     secs.forEach(i => { const b = body(i); if (!hasBody(b)) return; const n = normName(lines[i].t), k = kindOf(lines[i].t); if (!defs[n]) defs[n] = b; if (!defs[k]) defs[k] = b; });
     const out = [];
@@ -88,11 +97,12 @@
   /* paragraphes sans accords : on propose ceux d'un paragraphe semblable (même partie, même nombre de lignes), mot pour mot en proportion.
      Les accords proposés s'écrivent {{?C}} et s'affichent d'une autre couleur. */
   function autofill(text) {
-    const L = text.replace(/\r/g, '').split('\n'), blocks = []; let cur = null, kind = '';
+    const L = text.replace(/\r/g, '').split('\n'), blocks = []; let cur = null, kind = '', closed = false;
     L.forEach((l, i) => {
       const hd = headerOf(l);
-      if (hd != null) { kind = kindOf(hd); cur = null; return; }
-      if (!l.trim() || l.startsWith('>>>>')) { cur = null; if (!l.trim()) return; return; }
+      if (hd != null) { kind = kindOf(hd); cur = null; closed = L.slice(i + 1).findIndex(x => isEnd(x) || headerOf(x) != null); closed = closed >= 0 && isEnd(L[i + 1 + closed]); return; }
+      if (isEnd(l)) { kind = ''; cur = null; closed = false; return; }
+      if (!l.trim() || l.startsWith('>>>>')) { cur = null; if (!l.trim() && !closed) kind = ''; return; }
       if (!cur) { cur = { kind, idx: [], at: i }; blocks.push(cur); }
       cur.idx.push(i);
     });
@@ -127,6 +137,7 @@
   }
   function parse(text) {
     const chords = [], lines = decode(text || '').replace(/\r/g, '').split('\n').map(l => {
+      if (isEnd(l)) return { type: 'end' };
       const hd = headerOf(l); if (hd != null) return { type: 'sec', t: hd };
       if (l.startsWith('>>>>')) return { type: 'tab', t: l.slice(4) };
       if (!l.trim()) return { type: 'blank' };
@@ -160,10 +171,27 @@
   const keyOf = s => { if (s.key != null && s.key !== '') return { pc: +s.key, minor: !!s.minor, set: true }; const c = parse(s.text).chords; return c.length ? T.detectKey(c) : { pc: 0, none: true }; };
   const keyName = (pc, minor) => (minor ? T.fmt(T.MINKEYS[(pc + 9) % 12]) + ' mineur' : T.fmt(T.KEYS[pc]) + ' majeur');
 
+  const artistsOf = songs => { const m = new Map(); songs.forEach(s => { const a = (s.artist || '').trim(); if (!a) return; const k = fold(a); if (!m.has(k)) m.set(k, { name: a, n: 0 }); m.get(k).n++; }); return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')); };
+  const artistHref = a => '#/chansons/artiste/' + encodeURIComponent(a);
+  const songRow = (s, onChange) => {
+    const k = keyOf(s), m = meta(s.id);
+    return h('a', { class: 'srow', href: '#/chansons/' + s.id }, h('span', { class: 'srow-t' }, h('strong', {}, s.title), h('span', {}, s.artist || '')),
+      h('span', { class: 'srow-m' }, k.none ? '' : keyName(k.pc, k.minor), h('i', {}, [ytId(s.yt) ? 'vidéo' : '', s.local ? 'sur cet appareil' : ''].filter(Boolean).join(', '))),
+      h('button', { type: 'button', class: 'star' + (m.fav ? ' on' : ''), 'aria-label': m.fav ? 'Retirer des favoris' : 'Ajouter aux favoris', 'aria-pressed': m.fav ? 'true' : 'false', onclick: e => { e.preventDefault(); m.fav = !m.fav; saveDB(); onChange(); } }, m.fav ? '★' : '☆'));
+  };
+  /* ============ page d'un artiste ============ */
+  function artist(el, name) {
+    const rows = h('div', { class: 'songs' });
+    const draw = () => { rows.innerHTML = ''; const res = all().filter(s => fold(s.artist) === fold(name)).sort((a, b) => a.title.localeCompare(b.title, 'fr')); if (res.length) rows.append(...res.map(s => songRow(s, draw))); else rows.append(h('p', { class: 'empty' }, 'Aucune chanson de cet artiste dans le carnet.')); };
+    draw();
+    el.append(h('p', { class: 'sback' }, h('a', { href: '#/chansons' }, 'Toutes les chansons')), rows,
+      P.row(h('a', { class: 'btn', href: '#/chansons/new' }, 'Ajouter une chanson'), h('a', { class: 'btn', target: '_blank', rel: 'noopener', href: 'https://www.youtube.com/results?search_query=' + encodeURIComponent(name) }, 'Chercher ' + name + ' sur YouTube')));
+  }
+
   /* ============ liste ============ */
   function list(el) {
     let q = '', filt = P.S.sgFilt || 'all', sort = P.S.sgSort || 'title';
-    const rows = h('div', { class: 'songs' }), chips = h('div', { class: 'fchips' }), count = h('p', { class: 'hint' });
+    const rows = h('div', { class: 'songs' }), chips = h('div', { class: 'fchips' }), count = h('p', { class: 'hint' }), sugg = h('div', { class: 'fchips sugg' });
     const draw = () => {
       const songs = all(), folders = [...new Set(songs.map(s => s.folder || 'Sans dossier'))].sort((a, b) => a.localeCompare(b, 'fr'));
       if (filt !== 'all' && filt !== 'fav' && !folders.includes(filt)) filt = 'all';
@@ -177,11 +205,15 @@
       if (words.length) res = res.filter(s => { const hay = fold(s.title + ' ' + (s.artist || '') + ' ' + (s.folder || '')), deep = fold(plain(s.text)); return words.every(w => hay.includes(w) || deep.includes(w)); });
       res.sort(sort === 'recent' ? (a, b) => (b.updated || 0) - (a.updated || 0) : sort === 'artist' ? (a, b) => (a.artist || '').localeCompare(b.artist || '', 'fr') || a.title.localeCompare(b.title, 'fr') : (a, b) => a.title.localeCompare(b.title, 'fr'));
       rows.innerHTML = ''; count.textContent = res.length + ' chanson' + (res.length > 1 ? 's' : '') + (words.length ? ' pour « ' + q + ' » (titres, artistes et paroles)' : '') + '.';
-      const row = s => { const k = keyOf(s), m = meta(s.id);
-        return h('a', { class: 'srow', href: '#/chansons/' + s.id }, h('span', { class: 'srow-t' }, h('strong', {}, s.title), h('span', {}, s.artist || '')),
-          h('span', { class: 'srow-m' }, k.none ? '' : keyName(k.pc, k.minor), h('i', {}, [ytId(s.yt) ? 'vidéo' : '', s.local ? 'sur cet appareil' : ''].filter(Boolean).join(', '))),
-          h('button', { type: 'button', class: 'star' + (m.fav ? ' on' : ''), 'aria-label': m.fav ? 'Retirer des favoris' : 'Ajouter aux favoris', 'aria-pressed': m.fav ? 'true' : 'false', onclick: e => { e.preventDefault(); m.fav = !m.fav; saveDB(); draw(); } }, m.fav ? '★' : '☆')); };
+      const row = s => songRow(s, draw);
+      /* dès les premières lettres d'un artiste, on propose sa page */
+      sugg.innerHTML = '';
+      if (words.length) {
+        const fq = fold(q).trim(), hit = artistsOf(songs).filter(a => { const fa = fold(a.name); return fa.startsWith(fq) || fa.split(/\s+/).some(w => w.startsWith(fq)) || (fq.length > 2 && fa.includes(fq)); }).slice(0, 6);
+        if (hit.length) sugg.append(h('span', { class: 'hint' }, hit.length > 1 ? 'Artistes :' : 'Artiste :'), ...hit.map(a => h('a', { href: artistHref(a.name) }, a.name, h('small', {}, String(a.n)))));
+      }
       if (!res.length) rows.append(h('p', { class: 'empty' }, words.length ? 'Aucune chanson ne correspond. Essaie un autre mot, ou change de dossier.' : 'Ce dossier est vide. Ajoute une chanson pour commencer.'));
+      else if (sort === 'artist' && !words.length) { artistsOf(res).forEach(a => rows.append(h('h3', { class: 'sfold' }, h('a', { href: artistHref(a.name) }, a.name)), ...res.filter(s => fold(s.artist) === fold(a.name)).map(row))); const rest = res.filter(s => !(s.artist || '').trim()); if (rest.length) rows.append(h('h3', { class: 'sfold' }, 'Sans artiste'), ...rest.map(row)); }
       else if (filt === 'all' && !words.length && sort !== 'recent') folders.forEach(f => { const g = res.filter(s => (s.folder || 'Sans dossier') === f); if (g.length) rows.append(h('h3', { class: 'sfold' }, f), ...g.map(row)); });
       else rows.append(...res.map(row));
     };
@@ -202,7 +234,7 @@
     el.append(P.row(h('a', { class: 'btn solid', href: '#/chansons/new' }, 'Ajouter une chanson'), P.btn('Une chanson au hasard', () => { const a = all(); if (a.length) location.hash = '#/chansons/' + P.pick(a).id; }), P.btn('Importer un fichier', () => file.click()), P.btn('Exporter mes chansons', exp), file),
       h('div', { class: 'sfind' }, h('input', { type: 'search', placeholder: 'Chercher un titre, un artiste, des paroles', 'aria-label': 'Chercher une chanson', oninput: e => { q = e.target.value; draw(); } }),
         P.sel([['title', 'Par titre'], ['artist', 'Par artiste'], ['recent', 'Les plus récentes']], sort, v => { sort = v; P.S.sgSort = v; P.save(); draw(); })),
-      chips, count, rows);
+      sugg, chips, count, rows);
     draw();
     /* espace administrateur */
     const cl = h('div', { class: 'cloud' });
@@ -277,6 +309,7 @@
       if (l.type === 'sec') return h('h3', { class: 'ssec' + (l.rep ? ' rep' : '') }, l.t, l.rep ? h('small', {}, ' repris') : null);
       if (l.type === 'tab') return h('pre', { class: 'stab' }, l.t);
       if (l.type === 'blank') return h('div', { class: 'sblank' });
+      if (l.type === 'end') return null;
       return h('div', { class: 'sl' + (l.has ? ' has' : '') + (l.rep ? ' rep' : '') }, l.parts.map(p => (!p.raw ? h('span', { class: 'sg' }, h('span', { class: 'sx' }, p.text))
         : p.free ? [chordBtn(p), p.text ? h('span', { class: 'sg' }, h('span', { class: 'sx' }, p.text)) : null]
           : h('span', { class: 'sg' }, chordBtn(p), h('span', { class: 'sx' }, p.text || ' ')))));
@@ -352,7 +385,7 @@
         P.btn(M.fav ? 'Retirer des favoris' : 'Mettre en favori', e => { M.fav = !M.fav; saveDB(); e.currentTarget.textContent = M.fav ? 'Retirer des favoris' : 'Mettre en favori'; })));
     const recoB = P.btn('Facile', () => setTr(best()), 'reco'); recoB.title = 'Tonalité recommandée : la plus facile à jouer'; recoB.setAttribute('aria-label', 'Tonalité recommandée, la plus facile à jouer');
     const optB = P.btn('Options', () => { opts.hidden = !opts.hidden; optB.classList.toggle('on', !opts.hidden); if (split && opts.hidden) panes.scrollIntoView({ block: 'start' }); });
-    el.append(h('p', { class: 'sback' }, h('a', { href: '#/chansons' }, 'Toutes les chansons'), s.folder ? ' / ' + s.folder : ''), yt,
+    el.append(h('p', { class: 'sback' }, h('a', { href: '#/chansons' }, 'Toutes les chansons'), s.folder ? ' / ' + s.folder : '', (s.artist || '').trim() ? [' / ', h('a', { href: artistHref(s.artist.trim()) }, 'Tout ' + s.artist.trim())] : ''), yt,
       h('div', { class: 'sbar' }, P.btn('−', () => setTr(tr - 1), 'sq'), keyLab, recoB, P.btn('+', () => setTr(tr + 1), 'sq'), scrollB, optB), opts, note, panes, card);
     redraw(); sync();
   }
@@ -425,7 +458,8 @@
 <li>Un accord entre doubles accolades, <code>{{A}}</code>, se place juste avant le mot (ou la syllabe) où il doit être joué. Il s'affichera au-dessus.</li>
 <li>Avec un signe %, <code>{{%Em}}</code>, l'accord s'affiche dans le texte, sans être lié à une parole : pour les intros, les ponts instrumentaux, les fins.</li>
 <li>Une ligne entre crochets, <code>[Refrain]</code>, devient un titre de partie (« Refrain : » est reconnu aussi).</li>
-<li><b>Écris le refrain une seule fois</b> sous son titre. Ensuite, une ligne <code>[Refrain]</code> toute seule, sans rien dessous, le rappelle : il sera affiché en entier à cet endroit. Cela vaut pour n'importe quelle partie (<code>[Pont]</code>, <code>[Couplet 1]</code>…).</li>
+<li><b>Écris le refrain une seule fois</b> sous son titre. Ensuite, une ligne <code>[Refrain]</code> toute seule, suivie d'une ligne vide, le rappelle : il sera affiché en entier à cet endroit. Cela vaut pour n'importe quelle partie (<code>[Pont]</code>, <code>[Couplet 1]</code>…).</li>
+<li><b>Où s'arrête une partie.</b> Par défaut à la première ligne vide : le refrain, c'est le paragraphe écrit juste sous son titre, et ce qui suit n'a pas besoin de titre. Si ton refrain contient lui-même des lignes vides, ferme-le avec <code>[/Refrain]</code> : tout ce qui est entre les deux balises en fait partie.</li>
 <li>Avec un point d'interrogation, <code>{{?Am}}</code>, l'accord est marqué « proposé » et s'affiche en orange. Les passages sans aucun accord en reçoivent automatiquement à l'affichage, recopiés d'un passage semblable ; rien n'est modifié dans ton texte tant que tu n'utilises pas le bouton ci-dessus.</li>
 <li>Pour une tablature, commence chaque ligne par quatre chevrons : <code>&gt;&gt;&gt;&gt;</code>.</li>
 <li>Les accords s'écrivent en lettres (C D E F G A B), avec <code>#</code> ou <code>b</code>, et une basse éventuelle après une barre : <code>C/E</code>.</li>
@@ -442,16 +476,18 @@ Won't{{C}} you sing {{G}}me a song or t{{Am}}wo</pre>`)));
     key: 'Do', t: 'Chansons', d: "Ton carnet de paroles et d'accords : transposition, vidéo, défilement, recherche et dossiers.",
     lead: "Range ici les chansons que tu joues. Chacune se transpose d'un geste, affiche l'accord au clavier quand tu le touches, défile toute seule et peut se lire en degrés.",
     head(arg) {
-      const [id, sub] = (arg || '').split('/'); if (!id) return {};
+      const [id, ...rs] = (arg || '').split('/'), sub = rs.join('/'); if (!id) return {};
       if (id === 'new') return { h1: 'Nouvelle chanson', lead: 'Colle les paroles et les accords, donne un titre, enregistre.' };
+      if (id === 'artiste') { const n = all().filter(s => fold(s.artist) === fold(sub)).length, nm = (all().find(s => fold(s.artist) === fold(sub)) || {}).artist || sub; return { h1: nm, lead: n + ' chanson' + (n > 1 ? 's' : '') + ' dans le carnet.' }; }
       const s = all().find(x => x.id === id); if (!s && (cloudState === 'idle' || cloudState === 'loading')) return { h1: 'Chargement', lead: 'Récupération des chansons partagées.' };
       if (!s) return { h1: 'Chanson introuvable', lead: 'Elle a peut-être été supprimée, ou elle se trouve sur un autre appareil.' };
       return { h1: s.title, lead: sub === 'edit' ? 'Modification' : s.artist || '' };
     },
     render(el) {
-      const [id, sub] = (P.arg || '').split('/');
+      const [id, ...rs] = (P.arg || '').split('/'), sub = rs.join('/');
       if (!id) return list(el);
       if (id === 'new') return edit(el, null);
+      if (id === 'artiste') return artist(el, sub || '');
       const s = all().find(x => x.id === id);
       if (!s && (cloudState === 'idle' || cloudState === 'loading')) return;
       if (!s) return el.append(h('p', {}, h('a', { class: 'btn', href: '#/chansons' }, 'Revenir à la liste des chansons')));
