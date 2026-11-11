@@ -33,6 +33,15 @@ Ouvre simplement `index.html` dans Chrome, Edge ou Firefox.
 - **Hors connexion** : `sw.js` met le site, les sons et les polices en cache ; sur téléphone, « Ajouter à l'écran d'accueil » l'installe comme une application. Après une mise à jour du dépôt, la nouvelle version apparaît au deuxième chargement.
 - **Données** : réglages, scores et série sont enregistrés dans le navigateur (`localStorage`), rien n'est envoyé.
 
+## Carnet de chansons
+
+- Les chansons que tu ajoutes sont enregistrées dans le navigateur de l'appareil (`localStorage`).
+- « Exporter mes chansons » télécharge un fichier `songs.json` ; « Importer un fichier » le relit sur un autre appareil.
+- Si tu déposes ce `songs.json` à la racine du dépôt, ses chansons s'affichent sur tous tes appareils. Un dépôt GitHub Pages gratuit est public : n'y mets que des textes que tu as le droit de diffuser.
+- La vidéo YouTube intégrée ne s'affiche que sur le site en ligne (https), pas en ouvrant `index.html` directement.
+
+Pour publier des chansons visibles par tous les visiteurs en te connectant sur le site, voir `SUPABASE.md`.
+
 ## Organisation
 
 - `js/theory.js` : notes, gammes, accords, chiffres romains, voicings
@@ -42,6 +51,7 @@ Ouvre simplement `index.html` dans Chrome, Edge ou Firefox.
 - `js/mic.js` : détection de la note jouée au micro
 - `js/v-harmo.js` : exercices « accords d'une mélodie » et « oreille absolue »
 - `js/v-renv.js` : renversements (défi et enchaînements)
+- `js/v-songs.js` : carnet de chansons ; `js/songs.js` : chansons du domaine public fournies
 - `sw.js`, `manifest.webmanifest`, `icons/` : installation et fonctionnement hors connexion
 - `js/v-*.js` : les pages
 - `js/app.js` : navigation

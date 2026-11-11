@@ -18,14 +18,14 @@
       el.append(P.prose(`
 <h2>L'idée</h2>
 <p>Tu sais déjà retrouver une mélodie et plaquer les accords d'une grille. Ce qui te manque n'est pas de l'oreille, c'est une <em>carte</em>. Quand on pense « Do, La mineur, Fa, Sol », chaque tonalité est un nouveau pays. Quand on pense « un, six, quatre, cinq », il n'y a plus qu'un seul morceau, et douze manières de poser les mains dessus. Tous les pianistes qui transposent à la volée, tous les jazzmen qui « savent quels accords faire » pensent ainsi.</p>
-<p>Le site suit cet ordre. Les sept touches blanches du menu sont les chapitres ; les cinq touches noires sont des outils à garder sous la main.</p>`));
+<p>Le site suit cet ordre. Les touches blanches du menu sont les chapitres ; les touches noires sont des outils à garder sous la main ; le Do du haut ouvre ton carnet de chansons.</p>`));
 
       const order = ['degres', 'modes', 'arpeges', 'accords', 'phrase', 'oreille'];
       const ol = h('ol', { class: 'toc' });
       order.forEach(id => { const v = P.views[id]; ol.append(h('li', {}, h('a', { href: '#/' + id }, h('strong', {}, v.t), h('span', {}, v.d)))); });
       el.append(h('h2', { class: 'h2' }, 'Le parcours'), ol);
       const ul = h('ul', { class: 'toc toc-tools' });
-      ['routine', 'transposeur', 'reperes', 'jazzifieur', 'grilles'].forEach(id => { const v = P.views[id]; ul.append(h('li', {}, h('a', { href: '#/' + id }, h('strong', {}, v.t), h('span', {}, v.d)))); });
+      ['chansons', 'routine', 'transposeur', 'reperes', 'jazzifieur', 'grilles'].forEach(id => { const v = P.views[id]; ul.append(h('li', {}, h('a', { href: '#/' + id }, h('strong', {}, v.t), h('span', {}, v.d)))); });
       el.append(h('h2', { class: 'h2' }, 'Les outils'), ul);
 
       el.append(P.prose(`

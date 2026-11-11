@@ -1,7 +1,7 @@
 /* Douze — navigation, barre de tonalité, réglages */
 (function () {
   const P = window.P, T = P.T, A = P.A, h = P.h;
-  const ORDER = [['accueil', 'w'], ['routine', 'b'], ['degres', 'w'], ['transposeur', 'b'], ['modes', 'w'], ['arpeges', 'w'], ['reperes', 'b'], ['accords', 'w'], ['jazzifieur', 'b'], ['phrase', 'w'], ['grilles', 'b'], ['oreille', 'w']];
+  const ORDER = [['accueil', 'w'], ['routine', 'b'], ['degres', 'w'], ['transposeur', 'b'], ['modes', 'w'], ['arpeges', 'w'], ['reperes', 'b'], ['accords', 'w'], ['jazzifieur', 'b'], ['phrase', 'w'], ['grilles', 'b'], ['oreille', 'w'], ['chansons', 'w']];
   const SHORT = { routine: 'Séance', degres: 'Degrés', modes: 'Modes', arpeges: 'Arpèges', transposeur: 'Transposeur', phrase: 'Phrasé', oreille: 'Oreille' };
   const nav = document.getElementById('nav'), main = document.getElementById('main');
 
@@ -46,19 +46,23 @@
     bar.append(h('span', { class: 'keybar-l' }, 'Tonalité'), keys, h('div', { class: 'keybar-r' }, dice, micB, set));
     return bar;
   }
+  const stick = () => { const kb = main.querySelector('.keybar'); document.documentElement.style.setProperty('--stick', (window.innerWidth <= 900 ? 56 : kb ? kb.offsetHeight : 62) + 'px'); };
+  window.addEventListener('resize', stick);
   function route(keep) {
     const y = window.scrollY, open = !!document.querySelector('.settings[open]');
-    stale = false; P.onKey = null; A.stopAll(); P.noteCb = null; P.kbs.clear(); if (P.session) P.session.onTick = P.session.onDraw = null;
-    const id = location.hash.replace(/^#\/?/, '') || 'accueil', v = P.views[id] || P.views.accueil, vid = P.views[id] ? id : 'accueil';
+    stale = false; P.onKey = null; if (P.onLeave) { P.onLeave(); P.onLeave = null; } A.stopAll(); P.noteCb = null; P.kbs.clear(); if (P.session) P.session.onTick = P.session.onDraw = null;
+    const [rid, ...rest] = (location.hash.replace(/^#\/?/, '') || 'accueil').split('/'), id = rid || 'accueil', v = P.views[id] || P.views.accueil, vid = P.views[id] ? id : 'accueil';
+    P.arg = decodeURIComponent(rest.join('/')); const hd = v.head ? v.head(P.arg) : {};
     main.innerHTML = '';
     const kb = keybar(); if (open && keep) kb.querySelector('details').open = true;
     const body = h('div', { class: 'page page-' + vid });
-    main.append(kb, h('header', { class: 'head' }, swing(v.h1 || v.t), h('p', { class: 'lead' }, v.lead)), body,
+    main.append(kb, h('header', { class: 'head' + (hd.h1 ? ' head-s' : '') }, swing(hd.h1 || v.h1 || v.t), h('p', { class: 'lead' }, hd.lead != null ? hd.lead : v.lead)), body,
       h('footer', { class: 'foot' }, 'Douze fonctionne entièrement dans ton navigateur. Piano : échantillons Salamander Grand Piano (Alexander Holm, CC BY 3.0), servis par le projet Tone.js.'));
     v.render(body);
+    stick();
     nav.querySelectorAll('.pk').forEach(a => a.classList.toggle('on', a.dataset.id === vid));
     nav.querySelector('.menu-t').textContent = SHORT[vid] || v.t; nav.classList.remove('open');
-    document.title = (vid === 'accueil' ? '' : v.t + ' · ') + 'Douze';
+    document.title = (vid === 'accueil' ? '' : (hd.h1 || v.t) + ' · ') + 'Douze';
     window.scrollTo(0, keep ? y : 0);
   }
   /* Changer de tonalité pendant qu'une musique joue : elle continue dans la nouvelle tonalité.
@@ -70,9 +74,9 @@
     if (P.S.jz) P.S.jz = P.shiftText(P.S.jz, pc - old);
     if (P.S.gcustom) P.S.gcustom = P.shiftText(P.S.gcustom, pc - old);
     P.save();
-    if (A.loops.size && P.onKey) {
+    if (P.onKey && (A.loops.size || P.onKey.always)) {
       main.querySelectorAll('.keys button').forEach((b, i) => { b.classList.toggle('on', i === pc); b.setAttribute('aria-pressed', i === pc ? 'true' : 'false'); });
-      P.onKey(pc, old); stale = true;
+      P.onKey(pc, old); stale = !P.onKey.always;
     } else route(true);
   };
   A.onIdle = () => setTimeout(() => { if (stale && !A.loops.size) route(true); }, 120);
