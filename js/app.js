@@ -77,10 +77,11 @@
     if (P.S.gcustom) P.S.gcustom = P.shiftText(P.S.gcustom, pc - old);
     P.save();
     if (P.onKey && (A.loops.size || P.onKey.always)) {
-      main.querySelectorAll('.keys button').forEach((b, i) => { b.classList.toggle('on', i === pc); b.setAttribute('aria-pressed', i === pc ? 'true' : 'false'); });
+      P.syncKeys();
       P.onKey(pc, old); stale = !P.onKey.always;
     } else route(true);
   };
+  P.syncKeys = () => main.querySelectorAll('.keys button').forEach((b, i) => { b.classList.toggle('on', i === P.S.key); b.setAttribute('aria-pressed', i === P.S.key ? 'true' : 'false'); });
   A.onIdle = () => setTimeout(() => { if (stale && !A.loops.size) route(true); }, 120);
   P.rerender = () => route(true);
   buildNav(); P.midiInit();

@@ -63,16 +63,78 @@
   const ytId = u => { if (!u) return null; const m = /(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/.exec(u) || /^([\w-]{11})$/.exec(u.trim()); return m ? m[1] : null; };
 
   /* ---------- lecture du format {{C}} / {{%C}} / >>>> / [Section] ---------- */
+  /* titres de partie : [Refrain], « Refrain : », « Refrain x2 », « (Refrain) »… */
+  const SECW = 'refrain|chorus|couplet|verse|pont|bridge|intro|outro|pr[ée][- ]?refrain|pre[- ]?chorus|solo|instrumental|interlude|final|coda';
+  const SECRE = new RegExp('^\\s*\\(?\\s*((?:' + SECW + ')(?:\\s*\\d+)?(?:\\s*(?:x\\s*\\d+|\\(x\\s*\\d+\\)|bis))?)\\s*\\)?\\s*:?\\s*$', 'i');
+  const headerOf = l => { let m = /^\s*\[([^\]]+)\]\s*$/.exec(l); if (m) return m[1].trim(); m = SECRE.exec(l); return m ? m[1].trim() : null; };
+  const normName = t => fold(t).replace(/\(?x\s*\d+\)?|bis|[():]/g, '').replace(/chorus/, 'refrain').replace(/verse/, 'couplet').replace(/bridge/, 'pont').replace(/\s+/g, ' ').trim();
+  const kindOf = t => normName(t).replace(/\s*\d+/g, '');
+  const hasBody = b => b.some(x => x.type === 'line' || x.type === 'tab');
+  /* une partie écrite une fois, puis rappelée par son seul titre, est recopiée à l'endroit du rappel */
+  function expand(lines) {
+    const secs = []; lines.forEach((l, i) => { if (l.type === 'sec') secs.push(i); });
+    const body = i => { const k = secs.indexOf(i), b = lines.slice(i + 1, k + 1 < secs.length ? secs[k + 1] : lines.length); while (b.length && b[b.length - 1].type === 'blank') b.pop(); return b; };
+    const defs = {};
+    secs.forEach(i => { const b = body(i); if (!hasBody(b)) return; const n = normName(lines[i].t), k = kindOf(lines[i].t); if (!defs[n]) defs[n] = b; if (!defs[k]) defs[k] = b; });
+    const out = [];
+    lines.forEach((l, i) => {
+      if (l.type !== 'sec' || hasBody(body(i))) return out.push(l);
+      const d = defs[normName(l.t)] || defs[kindOf(l.t)];
+      if (!d) return out.push(l);
+      out.push({ ...l, rep: true }); d.forEach(x => out.push({ ...x, rep: true }));
+    });
+    return out;
+  }
+  /* paragraphes sans accords : on propose ceux d'un paragraphe semblable (même partie, même nombre de lignes), mot pour mot en proportion.
+     Les accords proposés s'écrivent {{?C}} et s'affichent d'une autre couleur. */
+  function autofill(text) {
+    const L = text.replace(/\r/g, '').split('\n'), blocks = []; let cur = null, kind = '';
+    L.forEach((l, i) => {
+      const hd = headerOf(l);
+      if (hd != null) { kind = kindOf(hd); cur = null; return; }
+      if (!l.trim() || l.startsWith('>>>>')) { cur = null; if (!l.trim()) return; return; }
+      if (!cur) { cur = { kind, idx: [], at: i }; blocks.push(cur); }
+      cur.idx.push(i);
+    });
+    blocks.forEach(b => { const t = b.idx.map(i => L[i]).join('\n'); b.inline = (t.match(/\{\{(?![%?])[^}]*\}\}/g) || []).length; b.any = t.includes('{{'); b.words = /\p{L}{2,}/u.test(plain(t)); });
+    const models = blocks.filter(b => b.inline > 0); let n = 0;
+    if (!models.length) return { text, n: 0 };
+    const split = l => { /* texte nu, positions des accords, débuts de mots */
+      const ch = []; let out = '', last = 0, m; const re = /\{\{([%?]?)([^}]*)\}\}/g;
+      while ((m = re.exec(l))) { out += l.slice(last, m.index); if (!m[1]) ch.push({ pos: out.length, c: m[2].trim() }); last = re.lastIndex; }
+      out += l.slice(last); const ws = [...out.matchAll(/\S+/g)].map(w => w.index);
+      return { out, ch, ws };
+    };
+    blocks.filter(b => !b.any && b.words).forEach(b => {
+      const score = m => (m.kind === b.kind ? 0 : 10) + Math.abs(m.idx.length - b.idx.length) * 2 + (m.at < b.at ? 0 : 1);
+      const M = models.slice().sort((x, y) => score(x) - score(y))[0];
+      b.idx.forEach((li, k) => {
+        const src = split(L[M.idx[k % M.idx.length]]), dst = split(L[li]); if (!src.ch.length || !dst.ws.length) return;
+        let lastW = -1; const ins = [];
+        src.ch.forEach(c => {
+          const wi = src.ws.filter(p => p <= c.pos).length - 1, atEnd = c.pos >= src.out.trimEnd().length;
+          let ti = atEnd ? dst.ws.length : Math.round((Math.max(wi, 0) * dst.ws.length) / Math.max(src.ws.length, 1));
+          if (ti <= lastW) ti = lastW + 1; lastW = ti;
+          ins.push({ pos: ti >= dst.ws.length ? null : dst.ws[ti], c: c.c });
+        });
+        let line = dst.out.replace(/\s+$/, '');
+        ins.filter(x => x.pos == null).forEach(x => { line += ' {{?' + x.c + '}}'; n++; });
+        ins.filter(x => x.pos != null).reverse().forEach(x => { line = line.slice(0, x.pos) + '{{?' + x.c + '}}' + line.slice(x.pos); n++; });
+        L[li] = line;
+      });
+    });
+    return { text: L.join('\n'), n };
+  }
   function parse(text) {
     const chords = [], lines = decode(text || '').replace(/\r/g, '').split('\n').map(l => {
-      if (/^\s*\[[^\]]+\]\s*$/.test(l)) return { type: 'sec', t: l.trim().slice(1, -1) };
+      const hd = headerOf(l); if (hd != null) return { type: 'sec', t: hd };
       if (l.startsWith('>>>>')) return { type: 'tab', t: l.slice(4) };
       if (!l.trim()) return { type: 'blank' };
-      const parts = [], re = /\{\{(%?)([^}]*)\}\}/g; let last = 0, m, cur = { text: '' };
+      const parts = [], re = /\{\{([%?]?)([^}]*)\}\}/g; let last = 0, m, cur = { text: '' };
       while ((m = re.exec(l))) {
         cur.text += l.slice(last, m.index); if (cur.text || cur.raw) parts.push(cur);
         const c = T.parseChord(m[2].trim()); if (c) chords.push(c);
-        cur = { raw: m[2].trim(), c, free: !!m[1], text: '' }; last = re.lastIndex;
+        cur = { raw: m[2].trim(), c, free: m[1] === '%', sug: m[1] === '?', text: '' }; last = re.lastIndex;
       }
       cur.text += l.slice(last); if (cur.text || cur.raw) parts.push(cur);
       return { type: 'line', parts, has: parts.some(p => p.raw && !p.free) };
@@ -173,8 +235,17 @@
 
   /* ============ une chanson ============ */
   function song(el, s) {
-    const M = meta(s.id), parsed = parse(s.text), det = keyOf(s);
+    const M = meta(s.id), det = keyOf(s);
     M.opened = Date.now(); saveDB();
+    let parsed, sugN = 0, repN = 0;
+    const build = () => {
+      let t = s.text; sugN = 0;
+      if (P.S.sgSug !== false) { if (!t.includes('{{?')) { const r = autofill(t); t = r.text; sugN = r.n; } else sugN = (t.match(/\{\{\?/g) || []).length; } else t = t.replace(/\{\{\?[^}]*\}\}/g, '');
+      parsed = parse(t);
+      if (P.S.sgExp !== false) parsed.lines = expand(parsed.lines);
+      repN = parsed.lines.filter(l => l.type === 'sec' && l.rep).length;
+    };
+    build();
     let tr = M.tr || 0, mode = P.S.sgMode || 'ch', size = P.S.sgSize || 1, speed = P.S.sgSpeed || 22, split = false, raf = null, vid = true, pin = false;
     const toTonic = () => T.KEYS[T.mod(det.pc + tr)], tx = c => T.transpose(c, det.pc, toTonic());
     const panes = h('div', { class: 'panes' }), keyLab = h('button', { type: 'button', class: 'skey', title: 'Revenir à la tonalité originale', onclick: () => setTr(0) });
@@ -197,27 +268,32 @@
     const chordBtn = p => {
       if (!p.c) return h('span', { class: 'sc raw' + (p.free ? ' free' : '') }, p.raw);
       const c = tx(p.c), name = T.chordName(c), rom = T.roman(p.c, det.pc);
-      const b = h('button', { type: 'button', class: 'sc' + (p.free ? ' free' : '') + (mode === 'hide' ? ' hid' : ''), onclick: () => { if (b.classList.contains('hid')) { b.classList.remove('hid'); b.textContent = name; } showCard(c, true); } },
+      const b = h('button', { type: 'button', class: 'sc' + (p.free ? ' free' : '') + (p.sug ? ' sug' : '') + (mode === 'hide' ? ' hid' : ''), title: p.sug ? 'Accord proposé par le site, à vérifier' : null, onclick: () => { if (b.classList.contains('hid')) { b.classList.remove('hid'); b.textContent = name; } showCard(c, true); } },
         mode === 'hide' ? '?' : mode === 'deg' ? rom : name, mode === 'both' ? h('small', {}, rom) : null);
       if (hover) b.addEventListener('mouseenter', () => { if (!b.classList.contains('hid')) showCard(c, false); });
       return b;
     };
     const pane = () => h('div', { class: 'pane' }, parsed.lines.map(l => {
-      if (l.type === 'sec') return h('h3', { class: 'ssec' }, l.t);
+      if (l.type === 'sec') return h('h3', { class: 'ssec' + (l.rep ? ' rep' : '') }, l.t, l.rep ? h('small', {}, ' repris') : null);
       if (l.type === 'tab') return h('pre', { class: 'stab' }, l.t);
       if (l.type === 'blank') return h('div', { class: 'sblank' });
-      return h('div', { class: 'sl' + (l.has ? ' has' : '') }, l.parts.map(p => (!p.raw ? h('span', { class: 'sg' }, h('span', { class: 'sx' }, p.text))
+      return h('div', { class: 'sl' + (l.has ? ' has' : '') + (l.rep ? ' rep' : '') }, l.parts.map(p => (!p.raw ? h('span', { class: 'sg' }, h('span', { class: 'sx' }, p.text))
         : p.free ? [chordBtn(p), p.text ? h('span', { class: 'sg' }, h('span', { class: 'sx' }, p.text)) : null]
           : h('span', { class: 'sg' }, chordBtn(p), h('span', { class: 'sx' }, p.text || ' ')))));
     }));
     const redraw = () => {
       const y = panes.firstChild ? panes.firstChild.scrollTop : 0;
       panes.innerHTML = ''; panes.append(pane()); if (split) panes.append(pane());
-      panes.classList.toggle('split', split); panes.style.setProperty('--fs', size); if (split) panes.firstChild.scrollTop = y;
+      panes.classList.toggle('duo', split); panes.style.setProperty('--fs', size); if (split) panes.firstChild.scrollTop = y;
       const pc = T.mod(det.pc + tr);
+      note.textContent = [sugN ? 'En orange : ' + sugN + ' accord' + (sugN > 1 ? 's proposés' : ' proposé') + ' par le site pour les passages sans accords, d\'après un passage semblable. À vérifier à l\'oreille.' : '', repN ? 'Les parties rappelées par leur seul titre (refrain) sont recopiées à leur place.' : ''].filter(Boolean).join(' ');
+      note.hidden = !note.textContent;
       keyLab.innerHTML = ''; keyLab.append(h('b', {}, det.none ? 'Sans accords' : keyName(pc, det.minor)), h('small', {}, tr ? 'originale : ' + keyName(det.pc, det.minor) : 'tonalité originale'));
     };
-    const setTr = v => { tr = T.mod(v); M.tr = tr; saveDB(); redraw(); if (cc && !card.hidden) card.hidden = true; };
+    const note = h('p', { class: 'hint snote', hidden: true });
+    /* la tonalité du site suit celle de la chanson */
+    const sync = () => { if (det.none) return; const pc = T.mod(det.pc + tr); if (P.S.key !== pc) { P.S.key = pc; P.save(); } if (P.syncKeys) P.syncKeys(); };
+    const setTr = v => { tr = T.mod(v); M.tr = tr; saveDB(); redraw(); sync(); if (cc && !card.hidden) card.hidden = true; };
     /* tonalité recommandée : celle qui met le moins de touches noires sous les doigts */
     const best = () => {
       let bs = 0, bc = 1e9;
@@ -248,18 +324,23 @@
     P.onKey = pc => setTr(pc - det.pc); P.onKey.always = true;
 
     /* vidéo */
-    const id = ytId(s.yt), yt = h('div', { class: 'yt' });
+    const id = ytId(s.yt), yt = h('div', { class: 'yt' }), frame = h('div', { class: 'yt-f' }), vctl = h('div', { class: 'row' });
+    /* épingler ne fait que changer le style : le lecteur n'est jamais recréé, la lecture continue */
     const drawVid = () => {
-      yt.innerHTML = ''; yt.classList.toggle('pin', pin && vid);
-      if (!id) { yt.append(h('a', { class: 'btn', target: '_blank', rel: 'noopener', href: 'https://www.youtube.com/results?search_query=' + encodeURIComponent(s.title + ' ' + (s.artist || '')) }, 'Chercher cette chanson sur YouTube'), h('p', { class: 'hint' }, 'Pour intégrer la vidéo ici, colle son lien dans « Options », puis « Modifier la chanson ».')); return; }
-      if (vid) yt.append(h('div', { class: 'yt-f' }, h('iframe', { src: 'https://www.youtube-nocookie.com/embed/' + id + '?playsinline=1&rel=0', title: 'Vidéo : ' + s.title, allow: 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture', allowfullscreen: true, loading: 'lazy' })));
-      yt.append(P.row(P.btn(vid ? 'Masquer la vidéo' : 'Afficher la vidéo', () => { vid = !vid; drawVid(); }), vid ? P.btn(pin ? 'Détacher la vidéo' : 'Garder la vidéo visible', () => { pin = !pin; drawVid(); }) : null));
+      yt.classList.toggle('pin', pin && vid); frame.hidden = !vid;
+      if (vid && !frame.firstChild) frame.append(h('iframe', { src: 'https://www.youtube-nocookie.com/embed/' + id + '?playsinline=1&rel=0', title: 'Vidéo : ' + s.title, allow: 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture', allowfullscreen: true }));
+      if (!vid) frame.innerHTML = '';
+      vctl.innerHTML = ''; vctl.append(P.btn(vid ? 'Fermer la vidéo' : 'Afficher la vidéo', () => { vid = !vid; drawVid(); }));
+      if (vid) vctl.append(P.btn(pin ? 'Détacher la vidéo' : 'Garder la vidéo visible', () => { pin = !pin; drawVid(); }));
     };
-    drawVid();
+    if (id) yt.append(frame, vctl);
+    else yt.append(h('a', { class: 'btn', target: '_blank', rel: 'noopener', href: 'https://www.youtube.com/results?search_query=' + encodeURIComponent(s.title + ' ' + (s.artist || '')) }, 'Chercher cette chanson sur YouTube'), h('p', { class: 'hint' }, 'Pour intégrer la vidéo ici, colle son lien dans « Options », puis « Modifier la chanson ».'));
+    if (id) drawVid();
 
     const opts = h('div', { class: 'sopts', hidden: true },
-      P.row(P.btn('Tonalité originale', () => setTr(0)), P.btn('Tonalité recommandée', () => setTr(best())), P.btn('Affiner : ½ ton plus bas', () => setTr(tr - 1)), P.btn('½ ton plus haut', () => setTr(tr + 1))),
-      h('p', { class: 'hint' }, 'La tonalité recommandée est celle où les accords passent le plus par les touches blanches. Tu peux aussi toucher une tonalité dans la barre du haut.'),
+      h('p', { class: 'hint' }, 'Tonalité : − et + transposent d\'un demi-ton, « Facile » choisit la tonalité où les accords passent le plus par les touches blanches, et toucher le nom de la tonalité revient à l\'originale. La tonalité du site suit celle de la chanson.'),
+      P.row(P.field('Refrains rappelés par leur titre', P.seg([[true, 'Recopiés'], [false, 'Tels quels']], P.S.sgExp !== false, v => { P.S.sgExp = v; P.save(); build(); redraw(); })),
+        P.field('Accords proposés là où il en manque', P.seg([[true, 'Affichés'], [false, 'Masqués']], P.S.sgSug !== false, v => { P.S.sgSug = v; P.save(); build(); redraw(); }))),
       P.row(P.field('Accords affichés', P.seg([['ch', 'Noms'], ['deg', 'Degrés'], ['both', 'Les deux'], ['hide', 'Masqués']], mode, v => { mode = v; P.S.sgMode = v; P.save(); redraw(); })),
         P.field('Écran', P.seg([[false, 'Entier'], [true, 'Coupé en deux']], split, v => { split = v; redraw(); if (v) panes.scrollIntoView({ block: 'start' }); })),
         P.field('Taille du texte', P.row(P.btn('A−', () => { size = Math.max(0.7, +(size - 0.1).toFixed(2)); P.S.sgSize = size; P.save(); redraw(); }), P.btn('A+', () => { size = Math.min(1.8, +(size + 0.1).toFixed(2)); P.S.sgSize = size; P.save(); redraw(); }))),
@@ -269,10 +350,11 @@
         P.btn('Envoyer la grille au Jazzifieur', () => { const cs = parsed.chords.slice(0, 16).map(c => T.chordName(tx(c))); if (!cs.length) return; P.S.key = T.mod(det.pc + tr); P.S.jz = cs.join(' '); P.save(); location.hash = '#/jazzifieur'; }),
         cloudOn && sess && s.local ? P.btn('Publier en ligne pour tout le monde', async e => { const b = e.currentTarget; b.disabled = true; b.textContent = 'Envoi…'; try { const { local, ...rec } = s; await Cloud.save(rec); delete DB.songs[s.id]; saveDB(); P.rerender(); } catch (err) { b.disabled = false; b.textContent = err.message; } }) : null,
         P.btn(M.fav ? 'Retirer des favoris' : 'Mettre en favori', e => { M.fav = !M.fav; saveDB(); e.currentTarget.textContent = M.fav ? 'Retirer des favoris' : 'Mettre en favori'; })));
-    const optB = P.btn('Options', () => { opts.hidden = !opts.hidden; optB.classList.toggle('on', !opts.hidden); });
+    const recoB = P.btn('Facile', () => setTr(best()), 'reco'); recoB.title = 'Tonalité recommandée : la plus facile à jouer'; recoB.setAttribute('aria-label', 'Tonalité recommandée, la plus facile à jouer');
+    const optB = P.btn('Options', () => { opts.hidden = !opts.hidden; optB.classList.toggle('on', !opts.hidden); if (split && opts.hidden) panes.scrollIntoView({ block: 'start' }); });
     el.append(h('p', { class: 'sback' }, h('a', { href: '#/chansons' }, 'Toutes les chansons'), s.folder ? ' / ' + s.folder : ''), yt,
-      h('div', { class: 'sbar' }, P.btn('−', () => setTr(tr - 1), 'sq'), keyLab, P.btn('+', () => setTr(tr + 1), 'sq'), scrollB, optB), opts, panes, card);
-    redraw();
+      h('div', { class: 'sbar' }, P.btn('−', () => setTr(tr - 1), 'sq'), keyLab, recoB, P.btn('+', () => setTr(tr + 1), 'sq'), scrollB, optB), opts, note, panes, card);
+    redraw(); sync();
   }
 
   /* ============ édition ============ */
@@ -334,7 +416,7 @@
         })),
         P.field('Paroles et accords', ta),
         admin ? P.field('Où enregistrer', P.seg([['cloud', 'En ligne, pour tout le monde'], ['local', 'Sur cet appareil seulement']], dest, v => (dest = v))) : s && !s.local && under(s.id) ? h('p', { class: 'hint' }, 'Tu modifies une copie personnelle : elle sera enregistrée sur cet appareil et remplacera chez toi la version d\'origine. La supprimer rétablit l\'originale.') : null,
-        P.row(P.btn('Enregistrer', save, 'solid'), P.btn('Convertir les accords écrits au-dessus des paroles', () => { const c = convert(ta.value); msg.textContent = c === ta.value ? 'Rien à convertir : aucune ligne d\'accords isolée n\'a été trouvée.' : 'Converti. Vérifie le placement des accords, puis enregistre.'; msg.className = 'fb'; ta.value = c; }), s ? P.btn('Supprimer', del) : null),
+        P.row(P.btn('Enregistrer', save, 'solid'), P.btn('Convertir les accords écrits au-dessus des paroles', () => { const c = convert(ta.value); msg.textContent = c === ta.value ? 'Rien à convertir : aucune ligne d\'accords isolée n\'a été trouvée.' : 'Converti. Vérifie le placement des accords, puis enregistre.'; msg.className = 'fb'; ta.value = c; }), P.btn('Proposer des accords pour les passages qui n\'en ont pas', () => { const r = autofill(ta.value); ta.value = r.text; msg.textContent = r.n ? r.n + ' accord' + (r.n > 1 ? 's proposés' : ' proposé') + ', écrits avec un point d\'interrogation ({{?C}}). Vérifie-les ; enlève le « ? » de ceux que tu valides.' : 'Rien à proposer : soit tous les passages ont des accords, soit aucun n\'en a.'; msg.className = 'fb'; }), s ? P.btn('Supprimer', del) : null),
         msg,
         P.prose(`<h4>Depuis un site de grilles</h4>
 <p>Colle l'adresse de la page dans « Page d'origine », touche « Ouvrir cette page », puis sur le site ouvre le mode édition de la chanson (celui où les accords apparaissent entre accolades). Sélectionne tout le texte, copie-le, reviens ici et touche « Coller le texte copié ». L'artiste et le titre sont déjà remplis d'après l'adresse.</p>
@@ -342,7 +424,9 @@
 <ul>
 <li>Un accord entre doubles accolades, <code>{{A}}</code>, se place juste avant le mot (ou la syllabe) où il doit être joué. Il s'affichera au-dessus.</li>
 <li>Avec un signe %, <code>{{%Em}}</code>, l'accord s'affiche dans le texte, sans être lié à une parole : pour les intros, les ponts instrumentaux, les fins.</li>
-<li>Une ligne entre crochets, <code>[Refrain]</code>, devient un titre de partie.</li>
+<li>Une ligne entre crochets, <code>[Refrain]</code>, devient un titre de partie (« Refrain : » est reconnu aussi).</li>
+<li><b>Écris le refrain une seule fois</b> sous son titre. Ensuite, une ligne <code>[Refrain]</code> toute seule, sans rien dessous, le rappelle : il sera affiché en entier à cet endroit. Cela vaut pour n'importe quelle partie (<code>[Pont]</code>, <code>[Couplet 1]</code>…).</li>
+<li>Avec un point d'interrogation, <code>{{?Am}}</code>, l'accord est marqué « proposé » et s'affiche en orange. Les passages sans aucun accord en reçoivent automatiquement à l'affichage, recopiés d'un passage semblable ; rien n'est modifié dans ton texte tant que tu n'utilises pas le bouton ci-dessus.</li>
 <li>Pour une tablature, commence chaque ligne par quatre chevrons : <code>&gt;&gt;&gt;&gt;</code>.</li>
 <li>Les accords s'écrivent en lettres (C D E F G A B), avec <code>#</code> ou <code>b</code>, et une basse éventuelle après une barre : <code>C/E</code>.</li>
 <li>Tu peux aussi coller une grille où les accords sont sur une ligne au-dessus des paroles : elle est convertie à l'enregistrement.</li>

@@ -1,7 +1,7 @@
 /* Douze — fonctionnement hors connexion.
    Fichiers du site : réponse immédiate depuis le cache, mise à jour en arrière-plan (visible au chargement suivant).
    Sons de piano et polices : mis en cache à la première utilisation. */
-const CACHE = 'douze-v6';
+const CACHE = 'douze-v7';
 const CORE = ['./', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon-192.png',
   'js/config.js', 'js/theory.js', 'js/ui.js', 'js/audio.js', 'js/band.js', 'js/mic.js', 'js/v-base.js', 'js/v-renv.js', 'js/v-mains.js', 'js/v-jazz.js', 'js/v-oreille.js', 'js/v-harmo.js', 'js/v-routine.js', 'js/songs.js', 'js/v-songs.js', 'js/app.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting())); });
