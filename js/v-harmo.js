@@ -75,22 +75,33 @@
   }
 
   P.earGames.harmoniser = function (host) {
-    let src = P.S.hsrc || 'gen', level = P.S.hlvl || '1', nb = 4, tune = 'alea', keyMode = 'alea', q = null, guess = [], sel = 0, checked = false, player = null;
+    let src = P.S.hsrc || 'gen', level = P.S.hlvl || '1', nb = 4, tune = 'alea', keyMode = 'alea', q = null, guess = [], sel = 0, cur = -1, checked = false, player = null, loopBar = false;
     const fb = h('p', { class: 'fb', 'aria-live': 'polite' }, 'Appuie sur « Nouvelle mélodie ».'), grid = h('div', { class: 'hbars' }), pal = h('div', { class: 'answers' }), keyInfo = h('p', { class: 'hint' });
     const tonicName = () => T.SIMPLE[q.pc];
     const chordOf = r => T.romanToChord(r, tonicName());
-    const sound = r => { const c = chordOf(r); A.piano(T.lowIn(c.rpc, 38), 0, 1, 0.5); A.chord(T.closeVoicing(c, 60), 0, 1, 0.42, 0.01); };
-    function play(chords) {
-      if (!q) return; if (player && player.on) { player.stop(); return; }
-      const spb = 60 / q.bpm, tonic = T.lowIn(q.pc, 55), ev = [];
-      q.notes.forEach(n => ev.push([(q.pick + n.bar * q.beats + n.pos) * spb, t => A.piano(tonic + n.semi, t, n.dur * spb * 0.95, 0.8)]));
+    const sound = (r, soft) => { const c = chordOf(r); A.piano(T.lowIn(c.rpc, 38), 0, 1, soft ? 0.4 : 0.5); A.chord(T.closeVoicing(c, soft ? 55 : 60), 0, 1, soft ? 0.3 : 0.42, 0.01); };
+    const hilite = () => grid.querySelectorAll('.hslot').forEach((e, j) => { e.classList.toggle('playing', j === cur); e.classList.toggle('sel', j === sel && !checked); });
+    const segT = s => q.pick + s.bar * q.beats + s.start;
+    /* joue à partir de la case `from` ; mode : 'mine' (mes accords, lus en direct) ou 'sol' (référence) */
+    function play(from, mode) {
+      if (!q) return; if (player) player.stop();
+      const spb = 60 / q.bpm;
+      const bar = q.segs[from].bar, first = loopBar ? q.segs.findIndex(s => s.bar === bar) : from;
+      const t0 = first === 0 && !loopBar ? 0 : segT(q.segs[first]), tEnd = loopBar ? q.pick + (bar + 1) * q.beats : q.pick + q.nbars * q.beats;
+      const ev = [];
+      q.notes.forEach(n => { const at = q.pick + n.bar * q.beats + n.pos; if (at >= t0 - 1e-6 && at < tEnd - 1e-6) ev.push([(at - t0) * spb, t => A.piano(T.lowIn(q.pc, 55) + n.semi, t, n.dur * spb * 0.95, 0.8)]); });
       q.segs.forEach((s, i) => {
-        const r = chords ? chords[i] : null, at = (q.pick + s.bar * q.beats + s.start) * spb;
-        ev.push([at, t => { A.at(t, () => grid.querySelectorAll('.hslot').forEach((e, j) => e.classList.toggle('playing', j === i))); if (r) { const c = chordOf(r); A.piano(T.lowIn(c.rpc, 36), t, s.len * spb * 0.95, 0.5); A.chord(T.closeVoicing(c, 55), t, s.len * spb * 0.95, 0.3, 0.01); } }]);
+        const at = segT(s); if (at < t0 - 1e-6 || at >= tEnd - 1e-6) return;
+        ev.push([(at - t0) * spb - 0.001, t => {
+          A.at(t, () => { cur = i; sel = i; hilite(); });
+          const r = mode === 'sol' ? s.ref : guess[i];
+          if (r) { const c = chordOf(r); A.piano(T.lowIn(c.rpc, 36), t, s.len * spb * 0.95, 0.5); A.chord(T.closeVoicing(c, 55), t, s.len * spb * 0.95, 0.3, 0.01); }
+        }]);
       });
-      ev.sort((a, b) => a[0] - b[0]);
-      player = new A.Player(ev, () => grid.querySelectorAll('.playing').forEach(e => e.classList.remove('playing')));
-      player.start();
+      ev.push([(tEnd - t0) * spb, () => {}]);
+      ev.sort((a, b) => a[0] - b[0]); if (ev[0][0] < 0) ev[0][0] = 0;
+      const pl = (player = new A.Player(ev, () => { cur = -1; hilite(); stopB.hidden = true; if (pl.ended && loopBar && player === pl) setTimeout(() => { if (player === pl && q) play(first, mode); }, 0); }));
+      pl.tail = loopBar ? 0 : 0.6; stopB.hidden = false; pl.start();
     }
     function draw() {
       grid.innerHTML = ''; pal.innerHTML = ''; if (!q) return;
@@ -100,25 +111,31 @@
           if (s.bar !== b) return;
           let cls = '', sub = null;
           if (checked) { const ok = guess[i] && norm(guess[i]) === norm(s.ref), f = guess[i] ? fit(q, s, guess[i]) : 0; cls = ok ? 'ok' : f === 1 ? 'alt' : 'ko'; if (!ok) sub = h('small', {}, disp(s.ref)); }
-          bar.append(h('button', { type: 'button', class: 'hslot ' + cls + (i === sel && !checked ? ' sel' : ''), style: `flex:${s.len}`, onclick: () => { if (checked) { if (guess[i]) sound(guess[i]); return; } sel = i; draw(); } }, guess[i] ? disp(guess[i]) : '?', sub));
+          bar.append(h('button', { type: 'button', class: 'hslot ' + cls, style: `flex:${s.len}`, 'aria-label': 'Mesure ' + (b + 1) + ', rejouer à partir d\'ici', onclick: () => { sel = i; play(i, 'mine'); } }, guess[i] ? disp(guess[i]) : '?', sub));
         });
         grid.append(bar);
       }
-      q.pool.forEach(r => pal.append(h('button', { type: 'button', class: 'ans', onclick: () => { sound(r); if (checked) return; guess[sel] = r; const nx = q.segs.findIndex((_, i) => i > sel && !guess[i]); sel = nx >= 0 ? nx : Math.min(sel + 1, q.segs.length - 1); draw(); } }, h('b', {}, disp(r)), h('span', {}, T.chordName(chordOf(r))))));
+      q.pool.forEach(r => pal.append(h('button', { type: 'button', class: 'ans', onclick: () => {
+        const live = cur >= 0; sound(r, live); if (checked) return;
+        guess[live ? cur : sel] = r;
+        if (!live) { const nx = q.segs.findIndex((_, i) => i > sel && !guess[i]); if (nx >= 0) sel = nx; }
+        draw();
+      } }, h('b', {}, disp(r)), h('span', {}, T.chordName(chordOf(r))))));
+      hilite();
     }
+    const setInfo = () => { keyInfo.textContent = (q.name ? '« ' + q.name + ' » en ' : 'Tonalité : ') + T.fmt(tonicName()) + ' majeur' + (q.beats === 3 ? ', à trois temps' : '') + (q.pick ? ', avec une levée' : '') + '.'; };
     function ask() {
-      if (player) player.stop();
       const tu = src === 'tune' ? (tune === 'alea' ? P.pick(TUNES) : TUNES.find(t => t.id === tune)) : null;
       q = tu ? fromTune(tu) : generate(level, nb);
       q.pc = keyMode === 'fixe' ? P.S.key : Math.floor(Math.random() * 12);
-      guess = []; sel = 0; checked = false;
-      keyInfo.textContent = (q.name ? '« ' + q.name + ' » en ' : 'Tonalité : ') + T.fmt(tonicName()) + ' majeur' + (q.beats === 3 ? ', à trois temps' : '') + (q.pick ? ', avec une levée' : '') + '.';
-      fb.textContent = 'Écoute la mélodie, chante la basse que tu imagines dessous, puis pose un accord dans chaque case.'; fb.className = 'fb';
-      draw(); play(null);
+      guess = []; sel = 0; cur = -1; checked = false; setInfo();
+      fb.textContent = 'Pendant que la mélodie joue, touche un accord : il se pose sur la case en cours. Touche une case pour rejouer à partir de là.'; fb.className = 'fb';
+      draw(); const lb = loopBar; loopBar = false; play(0, 'mine'); loopBar = lb;
     }
     function check() {
       if (!q) return;
       if (guess.filter(Boolean).length < q.segs.length) { fb.textContent = 'Il reste des cases vides.'; fb.className = 'fb ko'; return; }
+      if (player) player.stop();
       checked = true; let ok = 0, alt = 0;
       q.segs.forEach((s, i) => { if (norm(guess[i]) === norm(s.ref)) ok++; else if (fit(q, s, guess[i]) === 1) alt++; });
       P.stat('harmoniser', q.name || 'Niveau ' + level, ok + alt === q.segs.length);
@@ -126,6 +143,8 @@
       fb.textContent = ok === n ? 'Exactement l\'harmonisation de référence.' : `${ok} sur ${n} comme la référence` + (alt ? `, ${alt} autre${alt > 1 ? 's' : ''} qui fonctionne${alt > 1 ? 'nt' : ''} aussi (en jaune : la mélodie appartient à ton accord)` : '') + (n - ok - alt ? `, ${n - ok - alt} qui frotte${n - ok - alt > 1 ? 'nt' : ''} (en rose, avec l'accord attendu)` : '') + '. Écoute les deux versions pour comparer.';
       fb.className = 'fb ' + (ok + alt === n ? 'ok' : 'ko'); draw();
     }
+    const stopB = P.btn('Arrêter', () => { const pl = player; player = null; if (pl) pl.stop(); player = pl; }, 'on'); stopB.hidden = true;
+    P.onKey = () => { if (q && keyMode === 'fixe') { q.pc = P.S.key; setInfo(); draw(); } };
     const subHost = h('div', { class: 'row' });
     const drawSub = () => {
       subHost.innerHTML = '';
@@ -136,15 +155,48 @@
     };
     drawSub();
     host.append(P.row(P.seg([['gen', 'Mélodies inventées'], ['tune', 'Airs connus']], src, v => { src = v; P.S.hsrc = v; P.save(); drawSub(); })), subHost,
-      P.row(P.btn('Nouvelle mélodie', ask, 'solid'), P.btn('Réécouter la mélodie', () => play(null))),
-      keyInfo, fb, grid, pal,
-      P.row(P.btn('Écouter avec mes accords', () => play(guess)), P.btn('Vérifier', check, 'solid'), P.btn('Écouter la solution', () => q && play(q.segs.map(s => s.ref)))),
-      h('p', { class: 'hint' }, 'Touche une case, puis un accord : il sonne quand tu le choisis. Les noms sous les degrés sont ceux de la tonalité en cours, pour essayer sur ton piano.'),
+      P.row(P.btn('Nouvelle mélodie', ask, 'solid'), P.btn('Écouter du début', () => { if (!q) return; const lb = loopBar; loopBar = false; play(0, 'mine'); loopBar = lb; }), stopB),
+      keyInfo, fb, grid,
+      P.row(P.field('Quand je touche une case', P.seg([[false, 'Rejouer jusqu\'à la fin'], [true, 'Boucler sur la mesure']], loopBar, v => { loopBar = v; if (!v && player && player.on) { const pl = player; player = null; pl.stop(); player = pl; } }))),
+      pal,
+      P.row(P.btn('Vérifier', check, 'solid'), P.btn('Écouter la solution', () => { if (!q) return; const lb = loopBar; loopBar = false; play(0, 'sol'); loopBar = lb; })),
       P.prose(`<h4>La table qui remplace les sites d'accords</h4>
 <p>Chaque note de la gamme n'appartient qu'à deux ou trois accords. Repère la note sur laquelle la mélodie s'appuie (premier temps, note longue), et tu n'as plus que quelques candidats à essayer :</p>
 <table class="htable"><tr><th>Note de la mélodie</th><th>Accords possibles</th></tr>
 <tr><td>1</td><td>I, IV, vi</td></tr><tr><td>2</td><td>V, ii</td></tr><tr><td>3</td><td>I, vi, iii</td></tr><tr><td>4</td><td>IV, ii (ou V7)</td></tr><tr><td>5</td><td>I, V, iii</td></tr><tr><td>6</td><td>IV, vi, ii</td></tr><tr><td>7</td><td>V, iii</td></tr></table>
 <p>Ensuite, départage à l'oreille : <b>le I repose, le IV s'éloigne, le V veut rentrer</b>. Un accord mineur (vi, ii, iii) est la version assombrie de son voisin majeur (vi pour I, ii pour IV, iii pour V ou I). Les accords changent presque toujours sur un temps fort, et la dernière note d'une chanson est sur le I. Une note étrangère à la gamme dans la mélodie signale un accord hors gamme : un ♯4 annonce II7, un ♯5 annonce III7, un ♭6 le iv mineur, un ♭7 le ♭VII.</p>`));
   };
+
+  /* ============ oreille absolue ============ */
+  P.earGames.absolue = function (host) {
+    let what = 'note', set = '3', scr = true;
+    const NS = { '3': [0, 5, 7], w: [0, 2, 4, 5, 7, 9, 11], all: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] };
+    const kbWrap = h('div', {}, h('p', { class: 'hint' }, 'Tu peux répondre en jouant la note (à l\'écran, en MIDI ou au micro, à n\'importe quelle octave). Attention : chaque touche jouée compte comme une réponse.'));
+    const kb = new P.Keyboard(kbWrap, { from: 48, to: 84, mob: [48, 72], onNote: m => { const q = g.q; if (what !== 'note' || !q || q.done) return; g.answer('n' + (m % 12)); } });
+    const g = P.mcq(host, {
+      id: 'absolue',
+      opts: () => (what === 'note' ? NS[set].map(pc => ({ k: 'n' + pc, l: T.fmt(T.SIMPLE[pc]) }))
+        : [...NS[set].map(pc => ({ k: 'M' + pc, l: T.fmt(T.SIMPLE[pc], true), s: 'majeur' })), ...NS[set].map(pc => ({ k: 'm' + pc, l: T.fmt(T.SIMPLE[pc], true) + 'm', s: 'mineur' }))]),
+      settings: P.row(P.field('À reconnaître', P.seg([['note', 'Une note'], ['chord', 'Un accord']], what, v => { what = v; kbWrap.hidden = v !== 'note'; })),
+        P.field('Parmi', P.sel([['3', 'Trois repères : Do, Fa, Sol'], ['w', 'Les sept touches blanches'], ['all', 'Les douze']], set, v => (set = v))),
+        P.field('Avant chaque question', P.seg([[true, 'Brouiller l\'oreille'], [false, 'Silence']], scr, v => (scr = v)))),
+      kb: kbWrap,
+      onAsk: () => kb.clear(),
+      make() {
+        const pc = P.pick(NS[set]), minor = Math.random() < 0.5, base = 48 + pc + 12 * (what === 'note' ? P.pick([0, 1, 2]) : 0);
+        const ms = what === 'note' ? [base] : [base - 12, ...T.chordSemis(minor ? 'm' : '').map(s => base + s)];
+        return { ans: what === 'note' ? 'n' + pc : (minor ? 'm' : 'M') + pc,
+          play(again) {
+            let t = A.now() + 0.05;
+            /* quelques notes sans rapport effacent le souvenir de la question précédente : sans cela on répond par comparaison */
+            if (scr && !again) { for (let i = 0; i < 7; i++) A.piano(40 + Math.floor(Math.random() * 44), t + i * 0.085, 0.09, 0.35); t += 1.3; }
+            A.chord(ms, t, 1.8, what === 'note' ? 0.75 : 0.5);
+          },
+          after() { if (what === 'note') kb.mark([{ m: 48 + pc, c: 'c', t: T.fmt(T.SIMPLE[pc]) }]); return 1100; } };
+      },
+    });
+  };
+  P.earTabs.push(['absolue', 'Oreille absolue', "Aucune cadence, aucun repère : une note (ou un accord) sonne, tu donnes son nom ou tu la joues. Soyons clairs : l'oreille absolue complète s'acquiert rarement à l'âge adulte, mais la mémoire des hauteurs se muscle. Commence par trois repères, et choisis-toi une note d'ancrage : le premier son d'une chanson que tu connais par cœur, que tu chantes chaque jour avant de vérifier au piano."]);
+
   P.earTabs.splice(1, 0, ['harmoniser', 'Accords d\'une mélodie', "Une mélodie sans accompagnement, dans une tonalité tirée au sort : à toi de trouver les accords qui vont dessous, comme quand tu cherches ceux d'une chanson. Plusieurs réponses peuvent être bonnes ; le site te dit lesquelles fonctionnent."]);
 })();

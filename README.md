@@ -40,7 +40,8 @@ Ouvre simplement `index.html` dans Chrome, Edge ou Firefox.
 - `js/band.js` : section rythmique (walking bass, comping)
 - `js/ui.js` : clavier, commandes, MIDI
 - `js/mic.js` : détection de la note jouée au micro
-- `js/v-harmo.js` : exercice « accords d'une mélodie »
+- `js/v-harmo.js` : exercices « accords d'une mélodie » et « oreille absolue »
+- `js/v-renv.js` : renversements (défi et enchaînements)
 - `sw.js`, `manifest.webmanifest`, `icons/` : installation et fonctionnement hors connexion
 - `js/v-*.js` : les pages
 - `js/app.js` : navigation

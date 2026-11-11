@@ -137,5 +137,12 @@
   P.dayNum = () => Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5);
   P.FOURTHS = [0, 5, 10, 3, 8, 1, 6, 11, 4, 9, 2, 7];
   P.keyOfDay = () => P.FOURTHS[P.dayNum() % 12];
+  /* transpose les accords écrits en lettres dans un texte (les degrés et le reste ne bougent pas) */
+  P.shiftText = (text, delta) => {
+    const parts = text.split(/(\s+|\|)/), chs = parts.map(t => (/^\s*$|^\|$/.test(t) ? null : T.parseChord(t)));
+    const all = chs.filter(Boolean); if (!all.length) return text;
+    const from = T.detectKey(all).pc, to = T.KEYS[T.mod(from + delta)];
+    return parts.map((t, i) => (chs[i] ? T.chordName(T.transpose(chs[i], from, to)) : t)).join('');
+  };
   P.pick = a => a[Math.floor(Math.random() * a.length)];
 })();

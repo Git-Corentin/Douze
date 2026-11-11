@@ -20,8 +20,9 @@
     key: 'Sol', t: 'Accords jazz', d: "Septièmes, coquilles, voicings sans fondamentale, ii–V–I : ce que fait la main gauche des jazzmen.",
     lead: "Si tes accords ne sonnent pas jazz, ce n'est pas qu'il te manque des accords compliqués. C'est une affaire de disposition : quelles notes garder, lesquelles jeter, et comment passer d'un accord au suivant en bougeant le moins possible.",
     render(el) {
-      const kpc = P.S.key, tonic = P.tonic(), tn = T.fmt(tonic);
+      let kpc = P.S.key, tonic = P.tonic(); const tn = T.fmt(tonic);
       let lab = P.S.lab;
+      P.onKey = (pc, old) => { kpc = pc; tonic = P.tonic(); rpc = T.mod(rpc + pc - old); rootSel(); draw(); draw2(); };
       el.append(P.prose(`
 <h2>1. Tout accord a quatre sons</h2>
 <p>En jazz, l'accord de base n'est pas l'accord parfait mais l'accord de septième. Quatre qualités couvrent neuf grilles sur dix : <b>maj7</b> (1 3 5 7), <b>7</b> (1 3 5 ♭7), <b>m7</b> (1 ♭3 5 ♭7) et <b>m7♭5</b> (1 ♭3 ♭5 ♭7). Première étape : savoir les plaquer sur les douze fondamentales.</p>
@@ -173,7 +174,9 @@
     key: 'Sol♯', t: 'Jazzifieur', d: "Donne-lui les accords d'une chanson : il les réharmonise par étapes et t'explique pourquoi.",
     lead: "Colle une grille simple. L'outil la réharmonise en quatre niveaux, du plus sage au plus aventureux, en appliquant les recettes que les pianistes de jazz utilisent tous. Chaque changement est expliqué : le but est que tu finisses par le faire toi-même.",
     render(el) {
-      const tonic = P.tonic(), def = P.romChords('I vi IV V', tonic).map(T.chordName).join(' ');
+      const mkDef = () => P.romChords('I vi IV V', P.tonic()).map(T.chordName).join(' ');
+      let tonic = P.tonic(), def = mkDef();
+      P.onKey = () => { tonic = P.tonic(); def = mkDef(); ta.value = P.S.jz || def; run(); };
       const ta = h('textarea', { rows: 3, spellcheck: 'false', 'aria-label': 'Grille à réharmoniser' }); ta.value = P.S.jz || def;
       let level = 2, feel = 'swing', bpm = 104, res = null, kpc = 0, lab = P.S.lab;
       const out = h('div', { class: 'bars' }), why = h('ol', { class: 'why' }), info = h('p', { class: 'hint' });
@@ -196,7 +199,7 @@
         res.why.forEach(w => why.append(h('li', {}, w)));
       }
       ta.addEventListener('input', () => { band.loop.stop(); run(); });
-      el.append(P.tool('La grille de départ', ta, info,
+      el.append(P.tool('La grille de départ', ta, h('p', { class: 'hint' }, 'La grille suit la tonalité du site : change-la en haut de page, même pendant la lecture, et tout se transpose.'), info,
         P.row(P.field('Niveau', P.seg([[1, '1. Septièmes'], [2, '2. Couleurs'], [3, '3. Dominantes ajoutées'], [4, '4. Substitutions']], level, v => { level = v; band.loop.stop(); run(); }))),
         out,
         P.row(P.playToggle(band.loop, ['Écouter la version jazz', 'Arrêter']), P.btn('Écouter l\'original', () => P.playProg(T.parseGrid(ta.value.replace(/\n/g, ' '), tonic).flat(), { bpm: 88 })),
@@ -263,18 +266,20 @@
     key: 'La', t: 'Phrasé jazz', d: "Pourquoi ta main droite ne sonne pas jazz, et les neuf gestes qui changent tout.",
     lead: "Tu joues les bonnes notes : celles de la gamme. Les jazzmen jouent aussi des notes « fausses », mais au bon endroit du temps, et ils visent toujours quelque chose. Chaque idée ci-dessous s'écoute en deux versions, plate puis jazz, sur la même rythmique.",
     render(el) {
-      let bpm = 120, cur = null, lab = 'deg';
+      let bpm = 120, cur = null, lab = 'deg', trade = true, cycle = false;
       const kbHost = h('div', { class: 'sticky-kb' }), kb = new P.Keyboard(kbHost, { from: 48, to: 96, minKey: 16 }), status = h('div', { class: 'now' }, h('strong', {}, 'Clavier de démonstration'), h('span', {}, 'lance un exemple'));
       const o = { bars: [], get bpm() { return bpm; }, feel: 'swing' };
       const band = new P.Band(o);
       let spec = null, notes = [], kpc = P.S.key, off = 0, curCh = null;
-      const build = () => { o.bars = T.parseGrid(spec.grid, T.KEYS[kpc]); off = kpc <= 6 ? kpc : kpc - 12; kb.mark(notes.map(n => ({ m: n.m + off, c: 'g', t: '' }))); };
-      o.onChorus = n => { if (spec.cycle && n > 0 && n % 2 === 0) { kpc = (kpc + 5) % 12; build(); } };
+      const keyLab = h('span', { class: 'dock-k' }, 'Tonalité : ' + T.fmt(P.tonic()));
+      const build = () => { o.bars = T.parseGrid(spec.grid, T.KEYS[kpc]); off = kpc <= 6 ? kpc : kpc - 12; kb.mark(notes.map(n => ({ m: n.m + off, c: 'g', t: '' }))); keyLab.textContent = 'Tonalité : ' + T.fmt(T.KEYS[kpc]) + (spec.lick && cycle ? ', puis ' + T.fmt(T.KEYS[(kpc + 5) % 12]) : ''); };
+      P.onKey = () => { if (spec && band.loop.on) { kpc = P.S.key; build(); } else keyLab.textContent = 'Tonalité : ' + T.fmt(P.tonic()); };
+      o.onChorus = n => { if (spec.lick && cycle && n > 0 && n % 2 === 0) { kpc = (kpc + 5) % 12; build(); } };
       o.onChord = c => { curCh = c; status.firstChild.textContent = T.chordName(c); };
       o.onStop = () => { kb.live([]); document.querySelectorAll('.demo .on').forEach(b => { b.classList.remove('on'); }); cur = null; };
       o.lead = (abs, e, t, d, bar) => {
         const chorus = Math.floor(abs / o.bars.length);
-        if (spec.trade && chorus % 2 === 1) { if (e === 0 && bar === 0) A.at(t, () => { status.lastChild.textContent = 'à toi : rejoue la phrase'; kb.live([]); }); return; }
+        if (spec.lick && trade && chorus % 2 === 1) { if (e === 0 && bar === 0) A.at(t, () => { status.lastChild.textContent = 'à toi : rejoue la phrase'; kb.live([]); }); return; }
         notes.forEach(n => {
           if (n.bar !== bar || n.e !== e) return;
           const m = n.m + off, len = n.len * (60 / o.bpm / 2) * 0.95;
@@ -297,19 +302,23 @@
         const ba = P.btn('Version plate', e => start({ grid: dm.grid, line: dm.a, flat: true, flatFeel: dm.flatFeel }, e.currentTarget)), bb = P.btn('Version jazz', e => start({ grid: dm.grid, line: dm.b }, e.currentTarget), 'solid');
         el.append(h('article', { class: 'demo' }, h('h3', {}, (i + 1) + '. ' + dm.t), h('p', {}, dm.d), P.row(ba, bb), h('p', { class: 'degline' }, degLine(dm.grid, dm.b))));
       });
-      el.append(P.prose(`<h2>Phrases à apprendre dans les douze tonalités</h2><p>Une phrase n'est à toi que lorsque tu peux la jouer sans réfléchir dans une tonalité que tu n'aimes pas. Méthode : écoute, chante, puis joue. Le mode « question et réponse » joue la phrase une grille sur deux et te laisse la suivante. Le mode « tour des tonalités » monte d'une quarte toutes les deux grilles.</p>`));
-      let trade = true, cycle = false;
+      el.append(P.prose(`<h2>Phrases à apprendre dans les douze tonalités</h2><p>Une phrase n'est à toi que lorsque tu peux la jouer sans réfléchir dans une tonalité que tu n'aimes pas. Méthode : écoute, chante, puis joue. Les réglages restent accrochés en bas de l'écran, au-dessus du clavier, et s'appliquent tout de suite, même pendant la lecture. « Question-réponse » joue la phrase une grille sur deux et te laisse la suivante. « Tour des 12 » monte d'une quarte toutes les deux grilles (la tonalité en cours et la suivante sont affichées) ; tu peux aussi changer de tonalité à la main en haut de page sans arrêter la musique.</p>`));
       const lk = h('div');
       LICKS.forEach(L => lk.append(h('article', { class: 'demo lick' }, h('h3', {}, L.t), h('p', {}, L.d), h('p', { class: 'degline' }, degLine(L.grid, L.l)),
-        P.row(P.btn('Jouer en boucle', e => start({ grid: L.grid, line: L.l, trade, cycle }, e.currentTarget), 'solid')))));
-      el.append(P.tool('Réglages des phrases', P.row(P.seg([[true, 'Question et réponse'], [false, 'En boucle continue']], trade, v => (trade = v)), P.seg([[false, 'Rester en ' + T.fmt(P.tonic())], [true, 'Tour des tonalités']], cycle, v => (cycle = v)), P.tempo('phr', 120, v => (bpm = v)))), lk);
+        P.row(P.btn('Jouer en boucle', e => start({ grid: L.grid, line: L.l, lick: true }, e.currentTarget), 'solid')))));
+      el.append(lk);
       el.append(P.prose(`
 <h2>Ce qu'aucun exercice ne remplace</h2>
 <p><b>Relever.</b> Choisis quatre mesures d'un solo que tu aimes (Wynton Kelly sur « Freddie Freeloader », Red Garland, Oscar Peterson sont de bons débuts : clairs, swingants, pas trop rapides). Ralentis, chante-les, trouve-les au clavier, puis transpose-les. Tu as déjà l'oreille pour ça : c'est exactement ce que tu fais avec les mélodies de chansons.</p>
 <p><b>Chanter avant de jouer.</b> Si tu ne peux pas chanter une phrase, tes doigts jouent des réflexes. Improvise à la voix sur la page Grilles, puis cherche au clavier ce que tu as chanté.</p>
 <p><b>Se limiter.</b> Un chorus entier avec trois notes. Un chorus en ne jouant que des tierces d'accord. Un chorus en commençant chaque phrase sur un « et ». Les contraintes fabriquent le style.</p>
 <p><b>Le placement.</b> Joue légèrement en arrière du temps, détendu ; articule lié, avec de petits accents sur les croches faibles et sur les sommets de la ligne. Enregistre-toi : c'est le rythme, pas les notes, qui te dira si ça sonne.</p>`));
-      el.append(h('div', { class: 'dock' }, status, kbHost));
+      el.append(h('div', { class: 'dock' },
+        h('div', { class: 'dock-c' },
+          P.seg([[true, 'Question-réponse'], [false, 'En boucle']], trade, v => (trade = v)),
+          P.seg([[false, 'Même tonalité'], [true, 'Tour des 12']], cycle, v => { cycle = v; if (spec && band.loop.on) build(); }),
+          P.tempo('phr', 120, v => (bpm = v)), P.btn('Arrêter', () => band.loop.stop()), keyLab),
+        status, kbHost));
     },
   };
 
@@ -357,6 +366,7 @@
       o.onChord = (c, bar, v) => { gridEl.querySelectorAll('.on').forEach(x => x.classList.remove('on')); if (c._el) c._el.classList.add('on'); showChord(c, v); };
       o.onChorus = n => { if (cycle && n > 0) { kpc = (kpc + 5) % 12; build(); } };
       o.onStop = () => { gridEl.querySelectorAll('.on').forEach(x => x.classList.remove('on')); kpc = P.S.key; build(); };
+      P.onKey = () => { kpc = P.S.key; if (gid === 'custom') { custom = P.S.gcustom || custom; drawCustom(); } build(); };
       const pickGrid = v => { band.loop.stop(); gid = v; P.S.grid = v; P.save(); const g = GRIDS.find(x => x[0] === v); feel = g ? g[3] : feel || 'swing'; feelHost.innerHTML = ''; feelHost.append(feelSel()); drawCustom(); build(); };
       const feelSel = () => P.sel([['swing', 'Swing'], ['bossa', 'Bossa'], ['pop', 'Binaire']], feel, v => (feel = v));
       const feelHost = h('span');

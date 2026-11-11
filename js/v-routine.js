@@ -19,7 +19,7 @@
   ];
   P.challenge = () => CH[P.dayNum() % CH.length](T.fmt(T.KEYS[P.keyOfDay()]) + ' majeur');
   const BLOCKS = [
-    ['Mettre la tonalité dans les doigts', 'arpeges', 0.15, k => `Gamme de ${k} lentement, puis la formule de main gauche du moment sur I–V–vi–IV. Ensuite « Le tour des 12 » à tempo lent.`],
+    ['Mettre la tonalité dans les doigts', 'arpeges', 0.15, k => `Gamme de ${k} lentement, la formule de main gauche du moment sur I–V–vi–IV, puis deux minutes du défi des renversements sur les accords de la tonalité.`],
     ['Penser en degrés', 'transposeur', 0.2, k => `Une chanson de ton répertoire, en ${k}. Dis les chiffres à voix haute en changeant d'accord.`],
     ['Oreille', 'oreille', 0.15, () => `Degrés, puis suites d'accords. Arrête-toi sur une réussite.`],
     ['Accords jazz', 'accords', 0.2, k => `ii–V–I en ${k} et dans les deux tonalités suivantes du cycle : coquilles, puis sans fondamentale.`],

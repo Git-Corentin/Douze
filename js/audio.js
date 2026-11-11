@@ -118,7 +118,7 @@
     const dur = i => { const beat = 60 / o.bpm, long = beat * (0.5 + (o.swing || 0) * 0.1667); return i % 2 === 0 ? long : beat - long; };
     const tick = () => { const x = ctx(); while (next < x.currentTime + 0.14) { const d = dur(step); o.onStep(step, next, d); next += d; step++; } };
     this.start = () => { this.stop(); A.stopAll(); const x = ctx(); next = x.currentTime + 0.1; step = 0; timer = setInterval(tick, 25); A.loops.add(this); tick(); this.on = true; A.wake(true); };
-    this.stop = () => { if (timer) clearInterval(timer); timer = null; A.loops.delete(this); const was = this.on; this.on = false; if (was && o.onStop) o.onStop(); if (this._sync) this._sync(); if (!A.loops.size) A.wake(false); };
+    this.stop = () => { if (timer) clearInterval(timer); timer = null; A.loops.delete(this); const was = this.on; this.on = false; if (was && o.onStop) o.onStop(); if (this._sync) this._sync(); if (!A.loops.size) { A.wake(false); if (A.onIdle) A.onIdle(); } };
     this.toggle = () => (this.on ? this.stop() : this.start());
   };
   /* l'écran du téléphone reste allumé tant qu'une boucle joue */
@@ -131,9 +131,9 @@
   /* lecteur d'événements datés (en secondes), interrompable : ev = [[t, fn(tAudio)], …] */
   A.Player = function (ev, onEnd) {
     let timer = null, i = 0, t0 = 0;
-    const tick = () => { const x = ctx(); while (i < ev.length && t0 + ev[i][0] < x.currentTime + 0.18) { ev[i][1](t0 + ev[i][0]); i++; } if (i >= ev.length) { const end = t0 + ev[ev.length - 1][0]; A.at(end + 0.6, () => this.stop()); clearInterval(timer); timer = null; } };
-    this.start = () => { A.stopAll(); const x = ctx(); t0 = x.currentTime + 0.12; i = 0; this.on = true; A.loops.add(this); A.wake(true); timer = setInterval(tick, 40); tick(); };
-    this.stop = () => { if (timer) clearInterval(timer); timer = null; A.loops.delete(this); const was = this.on; this.on = false; if (was && onEnd) onEnd(); if (!A.loops.size) A.wake(false); };
+    const tick = () => { const x = ctx(); while (i < ev.length && t0 + ev[i][0] < x.currentTime + 0.18) { ev[i][1](t0 + ev[i][0]); i++; } if (i >= ev.length) { const end = t0 + ev[ev.length - 1][0]; A.at(end + (this.tail == null ? 0.6 : this.tail), () => { this.ended = true; this.stop(); }); clearInterval(timer); timer = null; } };
+    this.start = () => { A.stopAll(); const x = ctx(); t0 = x.currentTime + 0.12; i = 0; this.on = true; this.ended = false; A.loops.add(this); A.wake(true); timer = setInterval(tick, 40); tick(); };
+    this.stop = () => { if (timer) clearInterval(timer); timer = null; A.loops.delete(this); const was = this.on; this.on = false; if (was && onEnd) onEnd(); if (!A.loops.size) { A.wake(false); if (A.onIdle) A.onIdle(); } };
   };
   A.at = (t, fn) => { const id = setTimeout(() => { A.timers.delete(id); fn(); }, Math.max(0, (t - (c ? c.currentTime : 0)) * 1000)); A.timers.add(id); return id; };
   A.after = (ms, fn) => { const id = setTimeout(() => { A.timers.delete(id); fn(); }, ms); A.timers.add(id); return id; };

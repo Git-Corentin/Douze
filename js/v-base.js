@@ -79,7 +79,8 @@
     key: 'Ré', t: 'Les degrés', d: "Numéroter la gamme et les accords : la clé pour transposer et jouer d'oreille.",
     lead: "Une chanson n'est pas une suite de notes, c'est une suite de distances par rapport à une tonique. Donne un numéro à chaque note de la gamme et à chaque accord : tu n'apprends plus qu'un seul système au lieu de douze.",
     render(el) {
-      const tonic = P.tonic(), kpc = P.S.key, tn = T.fmt(tonic);
+      let tonic = P.tonic(), kpc = P.S.key; const tn = T.fmt(tonic);
+      P.onKey = () => { tonic = P.tonic(); kpc = P.S.key; curChord = null; draw(); };
       el.append(P.prose(`
 <h2>Sept notes, sept numéros</h2>
 <p>Une gamme majeure, c'est toujours la même recette : ton, ton, demi-ton, ton, ton, ton, demi-ton. On numérote ses notes de 1 à 7. En ${tn} majeur : ${T.scaleDegs('major').map(d => `<b>${d.t}</b> ${T.fmt(T.spell(tonic, d))}`).join(', ')}. Une mélodie devient alors une suite de chiffres. « Au clair de la lune » : 1 1 1 2 3 2 1 3 2 2 1. Joue ces chiffres dans n'importe quelle tonalité, c'est la même chanson.</p>
@@ -118,7 +119,7 @@
         const b = P.btn('Écouter', () => {
           if (playing) playing.stop();
           list.querySelectorAll('.pc.on').forEach(x => x.classList.remove('on'));
-          playing = P.playProg(chs, { bpm: 92, on: (c, i) => { cells.forEach((x, j) => x.classList.toggle('on', i === j)); curChord = c; draw(); }, onStop: () => cells.forEach(x => x.classList.remove('on')) });
+          playing = P.playProg(() => P.romChords(rs, P.tonic()), { bpm: 92, on: (c, i) => { cells.forEach((x, j) => x.classList.toggle('on', i === j)); curChord = c; draw(); }, onStop: () => cells.forEach(x => x.classList.remove('on')) });
         });
         list.append(h('div', { class: 'prow' }, h('div', { class: 'prow-h' }, h('strong', {}, name), h('span', {}, txt)), h('div', { class: 'prow-c' }, cells), b));
       });
@@ -147,7 +148,7 @@
         const chs = P.romChords(ctx, tonic), c = rom(r.replace('♭', 'b').replace('♯', '#'), tonic);
         ol.append(h('div', { class: 'prow' }, h('div', { class: 'prow-h' }, h('strong', {}, r + '  ' + T.chordName(c)), h('span', {}, name + '. ' + txt)),
           h('div', { class: 'prow-c' }, chs.map(x => h('span', { class: 'pc' }, h('b', {}, T.roman(x, kpc)), h('i', {}, T.chordName(x))))),
-          P.btn('Écouter en contexte', () => P.playProg(chs, { bpm: 88, on: x => { curChord = x; draw(); } }))));
+          P.btn('Écouter en contexte', () => P.playProg(() => P.romChords(ctx, P.tonic()), { bpm: 88, on: x => { curChord = x; draw(); } }))));
       });
       el.append(ol);
       el.append(P.prose(`<h2>Comment travailler ce chapitre</h2><ol><li>Prends une chanson que tu joues déjà. Écris sa grille en chiffres (le <a href="#/transposeur">Transposeur</a> le fait pour toi).</li><li>Joue-la dans la tonalité du jour sans regarder les noms d'accords : seulement les chiffres.</li><li>Chante la basse en disant les numéros. C'est ce qui grave le système dans l'oreille.</li><li>Fais de même avec la mélodie : trouve sur quel degré elle commence, puis laisse la main suivre.</li></ol>`));
@@ -194,12 +195,12 @@
         });
       }
       const mkSel = () => { srcSel.innerHTML = ''; srcSel.append(P.sel([['auto', 'Détection automatique'], ...T.KEYS.map((k, i) => [i, T.fmt(k) + ' majeur / ' + T.fmt(T.MINKEYS[(i + 9) % 12]) + ' mineur'])], src, v => { src = v; run(); })); };
-      mkSel(); ta.addEventListener('input', run);
+      mkSel(); ta.addEventListener('input', run); P.onKey = run;
       el.append(P.tool('La grille',
         ta,
         P.row(P.field("Tonalité d'origine", srcSel),
           P.btn('− ½ ton', () => P.setKey((P.S.key + 11) % 12)), P.btn('+ ½ ton', () => P.setKey((P.S.key + 1) % 12)),
-          P.btn('Écouter', () => { if (playing && playing.on) return playing.stop(); playing = P.playProg(flat, { bpm: 96, on: c => { out.querySelectorAll('.on').forEach(x => x.classList.remove('on')); c._el.classList.add('on'); show(c); }, onStop: () => out.querySelectorAll('.on').forEach(x => x.classList.remove('on')) }); }, 'solid'),
+          P.btn('Écouter', () => { if (playing && playing.on) return playing.stop(); playing = P.playProg(() => flat, { bpm: 96, on: c => { out.querySelectorAll('.on').forEach(x => x.classList.remove('on')); if (c._el) c._el.classList.add('on'); show(c); }, onStop: () => out.querySelectorAll('.on').forEach(x => x.classList.remove('on')) }); }, 'solid'),
           P.btn('Effacer', () => { ta.value = ''; run(); ta.focus(); })),
         info, h('p', { class: 'legend' }, 'Pour chaque accord : en petit l\'original, en couleur le degré, en gras la version en ' + T.fmt(P.tonic()) + '. Clique un accord pour le voir.'),
         out, kbHost));
@@ -218,7 +219,8 @@
     key: 'Mi', t: 'Modes et gammes', d: "Sept couleurs tirées d'une seule gamme, plus les gammes du blues et du jazz.",
     lead: "Un mode n'est pas une gamme de plus à apprendre : c'est la gamme majeure avec une ou deux notes déplacées, et c'est cette note-là qui fait toute la couleur. Écoute chaque mode sur le même tapis d'accords, depuis la même tonique.",
     render(el) {
-      const tonic = P.tonic(), kpc = P.S.key, tn = T.fmt(tonic);
+      let tonic = P.tonic(), kpc = P.S.key, tn = T.fmt(tonic);
+      P.onKey = () => { tonic = P.tonic(); kpc = P.S.key; tn = T.fmt(tonic); draw(); };
       let id = P.S.mode && T.SCALES[P.S.mode] ? P.S.mode : 'dorian', lab = P.S.lab, bpm = 92;
       const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 48, to: 84, mob: [48, 72] }), info = h('div', { class: 'mode-info' });
       const band = new P.Band({ bars: [], get bpm() { return bpm; }, feel: 'pop' });

@@ -83,13 +83,13 @@
     const L = new A.Loop({
       bpm: o.bpm || 84, swing: 0, onStop: o.onStop,
       onStep(s, t, d) {
-        const per = beats * 2, i = Math.floor(s / per);
-        if (i >= chs.length && !o.loop) { if (s % per === 0) A.at(t, () => L.stop()); return; }
+        const per = beats * 2, i = Math.floor(s / per), list = typeof chs === 'function' ? chs() : chs;
+        if (!list.length || (i >= list.length && !o.loop)) { if (s % per === 0) A.at(t, () => L.stop()); return; }
         if (s % per === 0) {
-          const c = chs[i % chs.length];
+          const c = list[i % list.length];
           A.piano(T.lowIn(c.bass ? c.bpc : c.rpc, 36), t, d * per * 0.95, 0.6);
           A.chord(o.voice ? o.voice(c, i) : T.closeVoicing(c, 62), t, d * per * 0.95, 0.5, 0.012);
-          if (o.on) A.at(t, () => o.on(c, i % chs.length));
+          if (o.on) A.at(t, () => o.on(c, i % list.length));
         }
       },
     });

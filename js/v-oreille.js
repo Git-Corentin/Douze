@@ -167,7 +167,7 @@
     ['intervalles', 'Intervalles', "La distance entre deux notes, hors de toute tonalité. Utile en complément, surtout pour les sauts dans une mélodie."],
     ['modes', 'Modes', "Une gamme monte et descend sur un bourdon : quel mode ? Cherche la note caractéristique."]];
 
-  P.earGames = GAMES; P.earTabs = TABS;
+  P.earGames = GAMES; P.earTabs = TABS; P.mcq = mcq;
 
   P.views.oreille = {
     key: 'Si', t: 'Oreille relative', d: "Reconnaître les degrés, trouver les accords sous une mélodie, identifier les suites d'accords : de quoi te passer des sites de grilles.",
@@ -175,7 +175,7 @@
     render(el) {
       let tab = P.S.ear && GAMES[P.S.ear] ? P.S.ear : 'degres';
       const host = h('div'), intro = h('p', { class: 'tab-intro' });
-      const show = () => { A.stopAll(); P.kbs.clear(); host.innerHTML = ''; intro.textContent = TABS.find(t => t[0] === tab)[2]; GAMES[tab](host); };
+      const show = () => { A.stopAll(); P.kbs.clear(); P.onKey = null; host.innerHTML = ''; intro.textContent = TABS.find(t => t[0] === tab)[2]; GAMES[tab](host); };
       el.append(P.tool('', P.seg(TABS.map(t => [t[0], t[1]]), tab, v => { tab = v; P.S.ear = v; P.save(); show(); }), intro, host));
       show();
       el.append(P.prose(`

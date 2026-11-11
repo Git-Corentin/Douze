@@ -2,7 +2,7 @@
 (function () {
   const P = window.P, T = P.T, A = P.A, h = P.h;
   const ORDER = [['accueil', 'w'], ['routine', 'b'], ['degres', 'w'], ['transposeur', 'b'], ['modes', 'w'], ['arpeges', 'w'], ['reperes', 'b'], ['accords', 'w'], ['jazzifieur', 'b'], ['phrase', 'w'], ['grilles', 'b'], ['oreille', 'w']];
-  const SHORT = { routine: 'Séance', degres: 'Degrés', modes: 'Modes', arpeges: 'Arpèges', phrase: 'Phrasé', oreille: 'Oreille' };
+  const SHORT = { routine: 'Séance', degres: 'Degrés', modes: 'Modes', arpeges: 'Arpèges', transposeur: 'Transposeur', phrase: 'Phrasé', oreille: 'Oreille' };
   const nav = document.getElementById('nav'), main = document.getElementById('main');
 
   function buildNav() {
@@ -11,7 +11,9 @@
       const v = P.views[id]; if (col === 'w') wi++;
       piano.append(h('a', { href: '#/' + (id === 'accueil' ? '' : id), class: 'pk pk-' + col, 'data-id': id, style: col === 'b' ? `--i:${wi}` : null }, h('span', { class: 'pk-n' }, v.key), h('span', { class: 'pk-t' }, SHORT[id] || v.t)));
     });
-    nav.append(h('a', { class: 'wordmark', href: '#/', 'aria-label': 'Douze, accueil' }, 'Douze'), h('p', { class: 'nav-s' }, 'Le piano d\'oreille, dans toutes les tonalités'), piano);
+    const menu = h('button', { type: 'button', class: 'menu-b', 'aria-expanded': 'false', onclick: e => { e.stopPropagation(); const o = nav.classList.toggle('open'); menu.setAttribute('aria-expanded', o ? 'true' : 'false'); } }, h('span', { class: 'menu-t' }, 'Menu'));
+    nav.append(h('a', { class: 'wordmark', href: '#/', 'aria-label': 'Douze, accueil' }, 'Douze'), h('p', { class: 'nav-s' }, 'Le piano d\'oreille, dans toutes les tonalités'), menu, piano);
+    document.addEventListener('click', e => { if (nav.classList.contains('open') && !e.target.closest('.menu-b')) { nav.classList.remove('open'); menu.setAttribute('aria-expanded', 'false'); } });
   }
   /* titre « swingué » : lettres alternativement larges et étroites, comme des croches longues et courtes */
   function swing(text) {
@@ -36,16 +38,17 @@
         P.field('Son du piano', P.seg([[true, 'Piano à queue'], [false, 'Synthé']], P.S.samples, v => { P.S.samples = v; P.save(); if (v) A.loadSamples(); P.onSound(); })), snd,
         P.field('Clavier MIDI : faire sonner ses notes ici', P.seg([[false, 'Non'], [true, 'Oui']], P.S.midiSound, v => { P.S.midiSound = v; P.save(); })), midi,
         P.btn('Effacer mes scores et ma série', () => { P.S.stats = {}; P.S.streak = { n: 0, last: '' }; P.S.done = {}; P.save(); route(true); })));
+    const dice = P.btn('Tonalité au hasard', () => { let k; do k = Math.floor(Math.random() * 12); while (k === P.S.key); P.setKey(k); }, 'mic');
     const micB = P.btn(P.mic.label(), () => P.mic.toggle(), 'mic' + (P.mic.on ? ' on' : ''));
     P.onMic = () => { micB.textContent = P.mic.label(); micB.classList.toggle('on', P.mic.on); micS.textContent = 'Micro : ' + P.mic.state + '.'; };
     const micS = h('span', { class: 'hint' }, 'Micro : ' + P.mic.state + '.');
     set.querySelector('.settings-b').append(h('p', { class: 'hint' }, "Le micro reconnaît une note à la fois (pas les accords) et se met en pause pendant que le site joue. Pose le téléphone sur le piano, loin d'un bruit de fond."), micS);
-    bar.append(h('span', { class: 'keybar-l' }, 'Tonalité'), keys, h('div', { class: 'keybar-r' }, micB, set));
+    bar.append(h('span', { class: 'keybar-l' }, 'Tonalité'), keys, h('div', { class: 'keybar-r' }, dice, micB, set));
     return bar;
   }
   function route(keep) {
     const y = window.scrollY, open = !!document.querySelector('.settings[open]');
-    A.stopAll(); P.noteCb = null; P.kbs.clear(); if (P.session) P.session.onTick = P.session.onDraw = null;
+    stale = false; P.onKey = null; A.stopAll(); P.noteCb = null; P.kbs.clear(); if (P.session) P.session.onTick = P.session.onDraw = null;
     const id = location.hash.replace(/^#\/?/, '') || 'accueil', v = P.views[id] || P.views.accueil, vid = P.views[id] ? id : 'accueil';
     main.innerHTML = '';
     const kb = keybar(); if (open && keep) kb.querySelector('details').open = true;
@@ -54,11 +57,25 @@
       h('footer', { class: 'foot' }, 'Douze fonctionne entièrement dans ton navigateur. Piano : échantillons Salamander Grand Piano (Alexander Holm, CC BY 3.0), servis par le projet Tone.js.'));
     v.render(body);
     nav.querySelectorAll('.pk').forEach(a => a.classList.toggle('on', a.dataset.id === vid));
+    nav.querySelector('.menu-t').textContent = SHORT[vid] || v.t; nav.classList.remove('open');
     document.title = (vid === 'accueil' ? '' : v.t + ' · ') + 'Douze';
     window.scrollTo(0, keep ? y : 0);
-    if (!keep) { const cur = nav.querySelector('.pk.on'); if (cur && cur.scrollIntoView && window.innerWidth < 900) cur.scrollIntoView({ inline: 'center', block: 'nearest' }); }
   }
-  P.setKey = pc => { P.S.key = pc; P.save(); route(true); };
+  /* Changer de tonalité pendant qu'une musique joue : elle continue dans la nouvelle tonalité.
+     La page est entièrement redessinée dès que la lecture s'arrête. */
+  let stale = false;
+  P.setKey = pc => {
+    const old = P.S.key; if (pc === old) return;
+    P.S.key = pc;
+    if (P.S.jz) P.S.jz = P.shiftText(P.S.jz, pc - old);
+    if (P.S.gcustom) P.S.gcustom = P.shiftText(P.S.gcustom, pc - old);
+    P.save();
+    if (A.loops.size && P.onKey) {
+      main.querySelectorAll('.keys button').forEach((b, i) => { b.classList.toggle('on', i === pc); b.setAttribute('aria-pressed', i === pc ? 'true' : 'false'); });
+      P.onKey(pc, old); stale = true;
+    } else route(true);
+  };
+  A.onIdle = () => setTimeout(() => { if (stale && !A.loops.size) route(true); }, 120);
   P.rerender = () => route(true);
   buildNav(); P.midiInit();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

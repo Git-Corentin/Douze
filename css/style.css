@@ -270,7 +270,7 @@ button.bch { cursor: pointer; } button.bch:hover { background: var(--laiton-c); 
 .pill .btn { padding: 6px 12px; background: var(--ivoire); border-color: var(--ivoire); white-space: nowrap; }
 .pill-x { background: none; border: 0; color: var(--ivoire); font-size: 1.5rem; line-height: 1; width: 34px; height: 34px; cursor: pointer; border-radius: 10px; }
 .pill-x:hover { background: #24383c; }
-body:has(.dock) .pill { bottom: calc(178px + env(safe-area-inset-bottom)); }
+body:has(.dock) .pill { bottom: calc(230px + env(safe-area-inset-bottom)); }
 body:has(.pill:not([hidden])) #main { padding-bottom: 130px; }
 .keybar-r { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .settings { margin-left: 0; }
@@ -294,19 +294,33 @@ button, .btn, summary { touch-action: manipulation; }
 .htable td:first-child { font: 800 1.1rem var(--disp); }
 .tool .prose h4 { margin-top: 2em; }
 
+/* ---------- menu déroulant (téléphone), barre du phrasé ---------- */
+.menu-b { display: none; }
+.dock-c { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 0 2px; }
+.dock-c .seg button { padding: 5px 10px; font-size: .82rem; }
+.dock-c .range { grid-template-columns: auto 110px auto; align-items: center; gap: 6px; }
+.dock-c .range .field-l { display: none; }
+.dock-c .btn { padding: 5px 12px; font-size: .86rem; }
+.dock-s { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dock-k { font-size: .86rem; font-weight: 600; color: var(--feutre-f); }
+.renv-q strong { font-size: 2.4rem; }
+[hidden] { display: none !important; }
+
 /* ---------- téléphone : l'octave passe à l'horizontale, tout tient dans la largeur ---------- */
 @media (max-width: 900px) {
   body { display: block; }
-  #nav { position: static; height: auto; padding: 0; overflow: visible; display: flex; align-items: stretch; }
-  .wordmark { font-size: 1.25rem; padding: 0 12px; display: flex; align-items: center; font-stretch: 125%; }
+  #nav { position: sticky; top: 0; z-index: 50; height: 56px; padding: 0 6px 0 0; overflow: visible; display: flex; align-items: center; justify-content: space-between; }
+  .wordmark { font-size: 1.45rem; padding: 0 14px; display: flex; align-items: center; height: 100%; font-stretch: 130%; }
   .nav-s { display: none; }
-  .piano { display: flex; overflow-x: auto; flex: 1; min-width: 0; border-top: 0; align-items: flex-start; scrollbar-width: none; }
-  .piano::-webkit-scrollbar { display: none; }
-  .pk { flex: 0 0 auto; padding: 0 13px; white-space: nowrap; }
-  .pk-n { display: none; }
-  .pk-w { height: 54px; border-bottom: 0; border-right: 1.5px solid var(--laque); }
-  .pk-w .pk-t { margin: 0; padding: 0; max-width: none; font-size: .9rem; }
-  .pk-b { position: static; width: auto; height: 38px; border-radius: 0 0 8px 8px; font-size: .82rem; }
+  .menu-b { display: flex; align-items: center; gap: 10px; background: #fffdf6; color: var(--laque); border: 1.5px solid var(--laque); border-radius: 4px 4px 12px 12px; padding: 0 14px; height: 42px; font-weight: 700; font-size: .98rem; cursor: pointer; border-top: 5px solid var(--rose); }
+  .menu-b::after { content: ''; width: 9px; height: 9px; border-right: 2.5px solid var(--laque); border-bottom: 2.5px solid var(--laque); transform: rotate(45deg) translate(-2px, -2px); }
+  #nav.open .menu-b { background: var(--laiton); }
+  #nav.open .menu-b::after { transform: rotate(-135deg) translate(-2px, -2px); }
+  .piano { display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: calc(100vh - 56px); overflow-y: auto; }
+  #nav.open::after { content: ''; position: fixed; inset: 56px 0 0 0; background: rgba(13, 27, 30, .5); z-index: -1; }
+  #nav.open .piano { display: block; }
+  .piano { --wh: 52px; --bh: 30px; }
+  .pk-w .pk-t { font-size: 1.02rem; }
   .keybar { position: static; }
   .settings-b { right: 0; }
   .today, .split { grid-template-columns: 1fr; }
@@ -353,7 +367,11 @@ button, .btn, summary { touch-action: manipulation; }
   .ladder button { padding: 10px 6px; } .ladder strong { min-width: 0; flex: 1 1 100%; }
   .demo { padding: 14px 0 10px; } .demo .btn { flex: 1; }
   .dock { margin: 20px -12px 0; padding: 4px 12px calc(2px + env(safe-area-inset-bottom)); }
-  .dock .kb-in { height: 96px; } .dock .kb { margin: 4px 0 0; }
+  .dock .kb-in { height: 84px; } .dock .kb { margin: 2px 0 0; }
+  .dock-c { gap: 5px 6px; } .dock-c .seg button { padding: 5px 7px; min-height: 32px; font-size: .72rem; } .dock-c .btn { min-height: 34px; padding: 4px 10px; }
+  .dock-c .range { flex: 1 1 110px; grid-template-columns: 1fr auto; font-size: .78rem; } .dock-k { font-size: .78rem; } .dock-c .range input { height: 24px; }
+  .dock .now { gap: 8px; } .dock .now strong { font-size: 1.05rem; } .dock .now span { font-size: .8rem; }
+  .renv-q strong { font-size: 2rem; }
   .tx-ch { min-width: 50px; padding: 5px 8px; } .tx-ch b { font-size: 1.08rem; }
   .block { padding: 12px 14px; } .block-a .btn { flex: 1 1 auto; }
   .hbars { gap: 8px 4px; } .hslot { min-height: 54px; }

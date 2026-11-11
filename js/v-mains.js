@@ -27,10 +27,10 @@
   const isB = pc => [1, 3, 6, 8, 10].includes(pc);
 
   P.views.arpeges = {
-    key: 'Fa', t: 'Arpèges et main gauche', d: "Les formules d'accompagnement, sur n'importe quel accord, dans les douze tonalités.",
+    key: 'Fa', t: 'Arpèges et renversements', d: "Les formules d'accompagnement et toutes les positions d'un accord, dans les douze tonalités.",
     lead: "Si tes arpèges coulent sur les touches blanches et accrochent ailleurs, ce n'est pas un problème de doigts : c'est que ta main ne connaît que deux ou trois formes d'accord sur six. On les apprend par familles, pas dans l'ordre chromatique.",
     render(el) {
-      const kpc = P.S.key, tonic = P.tonic();
+      let kpc = P.S.key, tonic = P.tonic();
       let src = 'chord', rpc = kpc, q = '', pat = PATS[2], bpm = 80, order = 'quartes', reps = 2, click = false, prog = SRC_PROGS[0], lab = P.S.lab;
       const kbHost = h('div'), kb = new P.Keyboard(kbHost, { from: 36, to: 96, minKey: 18 });
       const now = h('div', { class: 'now' });
@@ -99,6 +99,19 @@
         P.row(pb, P.tempo('arp', 80, v => (bpm = v)), P.seg([[false, 'Sans métronome'], [true, 'Avec']], click, v => (click = v)), P.labSeg(v => { lab = v; refresh(); })),
         h('h4', {}, 'Les familles de formes pour cet accord'), h('p', { class: 'hint' }, 'Carré clair = touche blanche, carré foncé = touche noire, dans l\'ordre fondamentale, tierce, quinte. Clique un accord pour le travailler.'), famHost));
       refresh();
+
+      el.append(P.prose(`
+<h2>Les renversements : le même accord, posé autrement</h2>
+<p>Un accord à trois sons a trois positions, selon la note qu'on met en bas. Sur un site de grilles, « C/E » veut dire : accord de Do, Mi à la basse, donc premier renversement. Mais les renversements servent surtout à deux choses qu'aucune grille n'écrit : <b>enchaîner les accords sans déplacer la main</b>, et <b>placer la note de la mélodie en haut de l'accord</b> à la main droite.</p>
+<p>Pour les plaquer sans réfléchir, ne compte pas les notes : repère <b>où se trouve la fondamentale</b> et quelle forme prend la main.</p>
+<ul>
+<li><b>État fondamental</b> (Do Mi Sol) : deux tierces empilées, fondamentale en bas. Main droite 1-3-5, main gauche 5-3-1.</li>
+<li><b>Premier renversement</b> (Mi Sol Do) : une tierce puis une quarte, fondamentale <em>en haut</em>. Main droite 1-2-5, main gauche 5-3-1.</li>
+<li><b>Deuxième renversement</b> (Sol Do Mi) : une quarte puis une tierce, fondamentale <em>au milieu</em>. Main droite 1-3-5, main gauche 5-2-1.</li>
+</ul>
+<p>Le grand écart (la quarte) te dit tout : la fondamentale est toujours la note du haut de cette quarte. Travaille d'abord les accords de la tonalité du jour, consigne « la basse », puis « la note du haut » : c'est exactement le réflexe dont tu as besoin pour jouer une mélodie avec son accord dessous dans la même main.</p>`));
+      const renvKey = P.renvTools(el);
+      P.onKey = (pc, old) => { rpc = T.mod(rpc + pc - old); kpc = pc; tonic = P.tonic(); srcSeg(); refresh(); renvKey(); };
 
       el.append(P.prose(`
 <h2>Les règles de doigté qui débloquent les touches noires</h2>
