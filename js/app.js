@@ -1,15 +1,17 @@
 /* Douze — navigation, barre de tonalité, réglages */
 (function () {
   const P = window.P, T = P.T, A = P.A, h = P.h;
-  const ORDER = [['accueil', 'w'], ['routine', 'b'], ['degres', 'w'], ['transposeur', 'b'], ['modes', 'w'], ['arpeges', 'w'], ['reperes', 'b'], ['accords', 'w'], ['jazzifieur', 'b'], ['phrase', 'w'], ['grilles', 'b'], ['oreille', 'w'], ['chansons', 'w']];
+  /* une octave : sept touches blanches (les chapitres et le carnet), cinq noires (les outils). L'accueil est sous le mot « Douze ». */
+  const ORDER = [['degres', 'w'], ['transposeur', 'b'], ['modes', 'w'], ['reperes', 'b'], ['arpeges', 'w'], ['accords', 'w'], ['jazzifieur', 'b'], ['phrase', 'w'], ['grilles', 'b'], ['oreille', 'w'], ['routine', 'b'], ['chansons', 'w']];
+  const NOTES = ['Do', 'Do♯', 'Ré', 'Ré♯', 'Mi', 'Fa', 'Fa♯', 'Sol', 'Sol♯', 'La', 'La♯', 'Si'];
   const SHORT = { routine: 'Séance', degres: 'Degrés', modes: 'Modes', arpeges: 'Arpèges', transposeur: 'Transposeur', phrase: 'Phrasé', oreille: 'Oreille' };
   const nav = document.getElementById('nav'), main = document.getElementById('main');
 
   function buildNav() {
     const piano = h('div', { class: 'piano' }); let wi = -1;
-    ORDER.forEach(([id, col]) => {
+    ORDER.forEach(([id, col], n) => {
       const v = P.views[id]; if (col === 'w') wi++;
-      piano.append(h('a', { href: '#/' + (id === 'accueil' ? '' : id), class: 'pk pk-' + col, 'data-id': id, style: col === 'b' ? `--i:${wi}` : null }, h('span', { class: 'pk-n' }, v.key), h('span', { class: 'pk-t' }, SHORT[id] || v.t)));
+      piano.append(h('a', { href: '#/' + id, class: 'pk pk-' + col, 'data-id': id, style: col === 'b' ? `--i:${wi}` : null }, h('span', { class: 'pk-n' }, NOTES[n]), h('span', { class: 'pk-t' }, SHORT[id] || v.t)));
     });
     const menu = h('button', { type: 'button', class: 'menu-b', 'aria-expanded': 'false', onclick: e => { e.stopPropagation(); const o = nav.classList.toggle('open'); menu.setAttribute('aria-expanded', o ? 'true' : 'false'); } }, h('span', { class: 'menu-t' }, 'Menu'));
     nav.append(h('a', { class: 'wordmark', href: '#/', 'aria-label': 'Douze, accueil' }, 'Douze'), h('p', { class: 'nav-s' }, 'Le piano d\'oreille, dans toutes les tonalités'), menu, piano);
@@ -61,7 +63,7 @@
     v.render(body);
     stick();
     nav.querySelectorAll('.pk').forEach(a => a.classList.toggle('on', a.dataset.id === vid));
-    nav.querySelector('.menu-t').textContent = SHORT[vid] || v.t; nav.classList.remove('open');
+    nav.querySelector('.menu-t').textContent = vid === 'accueil' ? 'Menu' : SHORT[vid] || v.t; nav.classList.remove('open');
     document.title = (vid === 'accueil' ? '' : (hd.h1 || v.t) + ' · ') + 'Douze';
     window.scrollTo(0, keep ? y : 0);
   }

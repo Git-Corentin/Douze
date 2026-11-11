@@ -15,10 +15,12 @@
           P.row(P.btn('Passer le site en ' + T.fmt(T.KEYS[kd]), () => P.setKey(kd), 'solid'), h('a', { class: 'btn', href: '#/routine' }, 'Ouvrir la séance du jour')),
           h('p', { class: 'hint' }, P.S.streak.n > 0 ? `Série en cours : ${P.S.streak.n} jour${P.S.streak.n > 1 ? 's' : ''} de travail.` : "Chaque jour le site propose une autre tonalité, en suivant le cycle des quartes : en douze jours tu as fait le tour."))));
 
+      const rec = P.songRecent ? P.songRecent() : [];
+      if (rec.length) el.append(h('h2', { class: 'h2' }, 'Reprendre une chanson'), h('div', { class: 'fchips recents' }, rec.map(s => h('a', { href: '#/chansons/' + s.id }, s.title, h('small', {}, s.artist || ''))), h('a', { href: '#/chansons' }, 'Tout le carnet')));
       el.append(P.prose(`
 <h2>L'idée</h2>
 <p>Tu sais déjà retrouver une mélodie et plaquer les accords d'une grille. Ce qui te manque n'est pas de l'oreille, c'est une <em>carte</em>. Quand on pense « Do, La mineur, Fa, Sol », chaque tonalité est un nouveau pays. Quand on pense « un, six, quatre, cinq », il n'y a plus qu'un seul morceau, et douze manières de poser les mains dessus. Tous les pianistes qui transposent à la volée, tous les jazzmen qui « savent quels accords faire » pensent ainsi.</p>
-<p>Le site suit cet ordre. Les touches blanches du menu sont les chapitres ; les touches noires sont des outils à garder sous la main ; le Do du haut ouvre ton carnet de chansons.</p>`));
+<p>Le site suit cet ordre. Le menu est une octave, douze touches : les blanches sont les chapitres et ton carnet de chansons, les noires des outils à garder sous la main. Le mot « Douze » ramène ici.</p>`));
 
       const order = ['degres', 'modes', 'arpeges', 'accords', 'phrase', 'oreille'];
       const ol = h('ol', { class: 'toc' });

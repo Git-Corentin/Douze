@@ -94,6 +94,7 @@
     }
     return out.join('\n');
   }
+  P.songRecent = () => all().filter(s => meta(s.id).opened).sort((a, b) => meta(b.id).opened - meta(a.id).opened).slice(0, 4);
   const keyOf = s => { if (s.key != null && s.key !== '') return { pc: +s.key, minor: !!s.minor, set: true }; const c = parse(s.text).chords; return c.length ? T.detectKey(c) : { pc: 0, none: true }; };
   const keyName = (pc, minor) => (minor ? T.fmt(T.MINKEYS[(pc + 9) % 12]) + ' mineur' : T.fmt(T.KEYS[pc]) + ' majeur');
 
@@ -136,7 +137,7 @@
       const mine = Object.values(DB.songs); if (!mine.length) return alert('Tu n\'as pas encore ajouté de chanson : il n\'y a rien à exporter.');
       const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(mine, null, 1)], { type: 'application/json' })), download: 'songs.json' }); document.body.append(a); a.click(); a.remove();
     };
-    el.append(P.row(h('a', { class: 'btn solid', href: '#/chansons/new' }, 'Ajouter une chanson'), P.btn('Importer un fichier', () => file.click()), P.btn('Exporter mes chansons', exp), file),
+    el.append(P.row(h('a', { class: 'btn solid', href: '#/chansons/new' }, 'Ajouter une chanson'), P.btn('Une chanson au hasard', () => { const a = all(); if (a.length) location.hash = '#/chansons/' + P.pick(a).id; }), P.btn('Importer un fichier', () => file.click()), P.btn('Exporter mes chansons', exp), file),
       h('div', { class: 'sfind' }, h('input', { type: 'search', placeholder: 'Chercher un titre, un artiste, des paroles', 'aria-label': 'Chercher une chanson', oninput: e => { q = e.target.value; draw(); } }),
         P.sel([['title', 'Par titre'], ['artist', 'Par artiste'], ['recent', 'Les plus récentes']], sort, v => { sort = v; P.S.sgSort = v; P.save(); draw(); })),
       chips, count, rows);
@@ -173,6 +174,7 @@
   /* ============ une chanson ============ */
   function song(el, s) {
     const M = meta(s.id), parsed = parse(s.text), det = keyOf(s);
+    M.opened = Date.now(); saveDB();
     let tr = M.tr || 0, mode = P.S.sgMode || 'ch', size = P.S.sgSize || 1, speed = P.S.sgSpeed || 22, split = false, raf = null, vid = true, pin = false;
     const toTonic = () => T.KEYS[T.mod(det.pc + tr)], tx = c => T.transpose(c, det.pc, toTonic());
     const panes = h('div', { class: 'panes' }), keyLab = h('button', { type: 'button', class: 'skey', title: 'Revenir à la tonalité originale', onclick: () => setTr(0) });
@@ -263,7 +265,7 @@
         P.field('Taille du texte', P.row(P.btn('A−', () => { size = Math.max(0.7, +(size - 0.1).toFixed(2)); P.S.sgSize = size; P.save(); redraw(); }), P.btn('A+', () => { size = Math.min(1.8, +(size + 0.1).toFixed(2)); P.S.sgSize = size; P.save(); redraw(); }))),
         P.range('Vitesse de défilement', 4, 90, speed, v => { speed = v; P.S.sgSpeed = v; P.save(); }, ' px/s')),
       h('p', { class: 'hint' }, '« Masqués » remplace chaque accord par un point d\'interrogation : cherche-le à l\'oreille, puis touche-le pour vérifier. « Coupé en deux » affiche la chanson dans deux zones qui défilent séparément, par exemple le refrain en haut et les couplets en bas.'),
-      P.row(h('a', { class: 'btn', href: '#/chansons/' + s.id + '/edit' }, 'Modifier la chanson'),
+      P.row(h('a', { class: 'btn', href: '#/chansons/' + s.id + '/edit' }, 'Modifier la chanson'), s.src ? h('a', { class: 'btn', href: s.src, target: '_blank', rel: 'noopener' }, 'Page d\'origine') : null,
         P.btn('Envoyer la grille au Jazzifieur', () => { const cs = parsed.chords.slice(0, 16).map(c => T.chordName(tx(c))); if (!cs.length) return; P.S.key = T.mod(det.pc + tr); P.S.jz = cs.join(' '); P.save(); location.hash = '#/jazzifieur'; }),
         cloudOn && sess && s.local ? P.btn('Publier en ligne pour tout le monde', async e => { const b = e.currentTarget; b.disabled = true; b.textContent = 'Envoi…'; try { const { local, ...rec } = s; await Cloud.save(rec); delete DB.songs[s.id]; saveDB(); P.rerender(); } catch (err) { b.disabled = false; b.textContent = err.message; } }) : null,
         P.btn(M.fav ? 'Retirer des favoris' : 'Mettre en favori', e => { M.fav = !M.fav; saveDB(); e.currentTarget.textContent = M.fav ? 'Retirer des favoris' : 'Mettre en favori'; })));
@@ -278,8 +280,25 @@
     const d = s || P.draft || {}; P.draft = null;
     const folders = [...new Set(all().map(x => x.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
     const inp = (v, ph) => h('input', { type: 'text', value: v || '', placeholder: ph || '' });
-    const title = inp(d.title, 'Titre'), artist = inp(d.artist, 'Artiste'), folder = inp(d.folder, 'Par exemple : Variété française'), yt = inp(d.yt, 'https://www.youtube.com/watch?v=…');
-    folder.setAttribute('list', 'sfolders');
+    const title = inp(d.title, 'Titre'), artist = inp(d.artist, 'Artiste'), yt = inp(d.yt, 'https://www.youtube.com/watch?v=…'), src = inp(d.src, 'Adresse de la page où tu as trouvé la chanson');
+    /* dossier : les dossiers existants en un geste, ou un nouveau */
+    let fold = d.folder || ''; if (fold && !folders.includes(fold)) folders.push(fold);
+    const newF = inp('', 'Nom du nouveau dossier'), fpick = h('div', { class: 'fchips' }); newF.hidden = true;
+    const drawF = () => {
+      fpick.innerHTML = '';
+      [['', 'Sans dossier'], ...folders.map(f => [f, f])].forEach(([v, l]) => fpick.append(h('button', { type: 'button', class: newF.hidden && v === fold ? 'on' : '', 'aria-pressed': newF.hidden && v === fold ? 'true' : 'false', onclick: () => { fold = v; newF.hidden = true; drawF(); } }, l)));
+      fpick.append(h('button', { type: 'button', class: newF.hidden ? '' : 'on', onclick: () => { newF.hidden = false; drawF(); newF.focus(); } }, 'Nouveau dossier'));
+    };
+    drawF();
+    const folderVal = () => (newF.hidden ? fold : newF.value.trim());
+    /* un lien de site de grilles contient souvent l'artiste et le titre : on les en déduit */
+    const nice = t => decodeURIComponent(t).replace(/[-_+]+/g, ' ').replace(/\b\p{L}/gu, c => c.toUpperCase()).trim();
+    src.addEventListener('input', () => {
+      const m = /^https?:\/\/[^/]+\/(?:custom\/|tab\/|partition\/)?([^/?#]+)\/([^/?#]+)/.exec(src.value.trim()); srcA.hidden = !/^https?:\/\//.test(src.value.trim()); srcA.href = src.value.trim();
+      if (!m || /^\d+$/.test(m[2])) return;
+      if (!artist.value.trim()) artist.value = nice(m[1]); if (!title.value.trim()) title.value = nice(m[2]);
+    });
+    const srcA = h('a', { class: 'btn', target: '_blank', rel: 'noopener', href: d.src || '#', hidden: !d.src }, 'Ouvrir cette page');
     const ta = h('textarea', { rows: 18, spellcheck: 'false', class: 'sedit', 'aria-label': 'Paroles et accords' }); ta.value = d.text || '';
     let key = d.key == null ? '' : String(d.key), minor = !!d.minor; const msg = h('p', { class: 'fb', 'aria-live': 'polite' });
     const admin = cloudOn && !!sess; let dest = admin && (!s || !s.local) ? 'cloud' : 'local';
@@ -287,7 +306,7 @@
       if (!title.value.trim()) { msg.textContent = 'Donne un titre à la chanson.'; msg.className = 'fb ko'; title.focus(); return; }
       let text = ta.value; if (!text.includes('{{')) text = convert(text);
       const id = s ? s.id : 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-      const rec = { id, title: title.value.trim(), artist: artist.value.trim(), folder: folder.value.trim(), yt: yt.value.trim(), key, minor, text, updated: Date.now() };
+      const rec = { id, title: title.value.trim(), artist: artist.value.trim(), folder: folderVal(), yt: yt.value.trim(), src: src.value.trim(), key, minor, text, updated: Date.now() };
       if (dest === 'cloud') {
         msg.textContent = 'Envoi en ligne…'; msg.className = 'fb';
         try { await Cloud.save(rec); delete DB.songs[id]; DB.hidden = DB.hidden.filter(x => x !== id); } catch (err) { msg.textContent = err.message + ' La chanson n\'a pas été enregistrée.'; msg.className = 'fb ko'; return; }
@@ -305,15 +324,21 @@
       saveDB(); location.hash = s.local && base ? '#/chansons/' + s.id : '#/chansons';
     };
     el.append(h('p', { class: 'sback' }, h('a', { href: s ? '#/chansons/' + s.id : '#/chansons' }, s ? 'Revenir à la chanson' : 'Toutes les chansons')),
-      h('datalist', { id: 'sfolders' }, folders.map(f => h('option', { value: f }))),
       P.tool(s ? 'Modifier' : 'Nouvelle chanson',
-        h('div', { class: 'sform' }, P.field('Titre', title), P.field('Artiste', artist), P.field('Dossier', folder), P.field('Lien YouTube (facultatif)', yt),
+        h('div', { class: 'sform' }, P.field('Titre', title), P.field('Artiste', artist), h('div', { class: 'field wide' }, h('span', { class: 'field-l' }, 'Dossier'), fpick, newF), P.field('Lien YouTube (facultatif)', yt),
           P.field('Tonalité d\'origine', P.sel([['', 'Détection automatique'], ...T.KEYS.flatMap((k, i) => [[i + 'M', T.fmt(k) + ' majeur'], [i + 'm', T.fmt(T.MINKEYS[(i + 9) % 12]) + ' mineur']])], key === '' ? '' : key + (minor ? 'm' : 'M'), v => { key = v === '' ? '' : String(parseInt(v, 10)); minor = v.endsWith('m'); }))),
+        h('div', { class: 'field' }, h('span', { class: 'field-l' }, 'Page d\'origine (facultatif) : colle le lien, l\'artiste et le titre se remplissent'), src),
+        P.row(srcA, P.btn('Coller le texte copié', async () => {
+          try { const t = await navigator.clipboard.readText(); if (!t.trim()) throw 0; if (ta.value.trim() && !confirm('Remplacer le texte déjà saisi par le contenu du presse-papiers ?')) return; ta.value = t; msg.textContent = 'Texte collé. Vérifie, puis enregistre.'; msg.className = 'fb'; }
+          catch (e) { msg.textContent = 'Le navigateur n\'a pas donné accès au presse-papiers : fais un appui long (ou Ctrl+V) dans la zone de texte.'; msg.className = 'fb ko'; ta.focus(); }
+        })),
         P.field('Paroles et accords', ta),
         admin ? P.field('Où enregistrer', P.seg([['cloud', 'En ligne, pour tout le monde'], ['local', 'Sur cet appareil seulement']], dest, v => (dest = v))) : s && !s.local && under(s.id) ? h('p', { class: 'hint' }, 'Tu modifies une copie personnelle : elle sera enregistrée sur cet appareil et remplacera chez toi la version d\'origine. La supprimer rétablit l\'originale.') : null,
         P.row(P.btn('Enregistrer', save, 'solid'), P.btn('Convertir les accords écrits au-dessus des paroles', () => { const c = convert(ta.value); msg.textContent = c === ta.value ? 'Rien à convertir : aucune ligne d\'accords isolée n\'a été trouvée.' : 'Converti. Vérifie le placement des accords, puis enregistre.'; msg.className = 'fb'; ta.value = c; }), s ? P.btn('Supprimer', del) : null),
         msg,
-        P.prose(`<h4>Mode d'emploi</h4>
+        P.prose(`<h4>Depuis un site de grilles</h4>
+<p>Colle l'adresse de la page dans « Page d'origine », touche « Ouvrir cette page », puis sur le site ouvre le mode édition de la chanson (celui où les accords apparaissent entre accolades). Sélectionne tout le texte, copie-le, reviens ici et touche « Coller le texte copié ». L'artiste et le titre sont déjà remplis d'après l'adresse.</p>
+<h4>Mode d'emploi du format</h4>
 <ul>
 <li>Un accord entre doubles accolades, <code>{{A}}</code>, se place juste avant le mot (ou la syllabe) où il doit être joué. Il s'affichera au-dessus.</li>
 <li>Avec un signe %, <code>{{%Em}}</code>, l'accord s'affiche dans le texte, sans être lié à une parole : pour les intros, les ponts instrumentaux, les fins.</li>

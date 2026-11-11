@@ -86,9 +86,9 @@ h1 .s { font-stretch: 72%; }
 .btn.play { background: var(--feutre); color: #fff; border-color: var(--feutre-f); padding: 10px 20px; }
 .btn.play:hover { background: var(--feutre-f); }
 .btn.on, .btn.play.on { background: var(--rose); color: #fff; border-color: var(--laque); }
-.seg { display: inline-flex; flex-wrap: wrap; border: 1.5px solid var(--laque); border-radius: 10px; overflow: hidden; background: var(--papier); }
-.seg button { border: 0; background: none; padding: 7px 12px; font-size: .88rem; font-weight: 600; cursor: pointer; border-right: 1.5px solid var(--trait); }
-.seg button:last-child { border-right: 0; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 1.5px; border: 1.5px solid var(--laque); border-radius: 10px; overflow: hidden; background: var(--laque); }
+.seg button { border: 0; background: var(--papier); padding: 7px 12px; font-size: .88rem; font-weight: 600; cursor: pointer; flex: 1 1 auto; text-align: center; }
+.field > .seg, .settings-b .seg { display: flex; }
 .seg button:hover { background: var(--laiton-c); }
 .seg button.on { background: var(--laque); color: var(--ivoire); }
 select, textarea { border: 1.5px solid var(--laque); border-radius: 10px; background: var(--papier); padding: 7px 10px; font-size: .93rem; max-width: 100%; }
@@ -361,6 +361,8 @@ pre.stab { background: var(--ivoire); border-radius: 8px; padding: 0 8px; } .pro
 .chcard .pill-x { color: var(--laque); } .chcard .pill-x:hover { background: var(--ivoire); } .chcard .kb { margin: 6px 0; } .chcard .row { margin: 6px 0 0; } .chcard .btn { padding: 5px 12px; min-height: 36px; font-size: .86rem; }
 body:has(.pill:not([hidden])) .chcard { bottom: 78px; }
 .sform { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-bottom: 14px; }
+.sform .wide { grid-column: 1 / -1; } .sform .wide input { margin-top: 6px; max-width: 420px; }
+.recents a { border: 1.5px solid var(--laque); background: #fffdf6; border-radius: 4px 4px 11px 11px; padding: 8px 14px 9px; font-weight: 700; text-decoration: none; color: var(--laque); display: grid; } .recents a:hover { background: var(--laiton-c); } .recents small { font-weight: 500; }
 .sedit { font: 500 .92rem/1.5 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; white-space: pre; overflow-x: auto; }
 
 /* ---------- téléphone : l'octave passe à l'horizontale, tout tient dans la largeur ---------- */
