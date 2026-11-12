@@ -57,6 +57,7 @@
   };
   const meta = id => (DB.meta[id] = DB.meta[id] || {});
   const plain = t => t.replace(/\{\{[^}]*\}\}/g, '');
+  const tok = s => fold(s).split(/[^a-z0-9]+/).filter(Boolean);
   const fold = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const decode = t => t.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
     .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
@@ -94,10 +95,65 @@
     });
     return out;
   }
-  /* paragraphes sans accords : on propose ceux d'un paragraphe semblable (même partie, même nombre de lignes), mot pour mot en proportion.
-     Les accords proposés s'écrivent {{?C}} et s'affichent d'une autre couleur. */
+  /* ---------- mise en forme automatique : « Intro : la la » → [Intro] puis « la la » à la ligne ---------- */
+  const HEADRE = new RegExp('^\\s*[\\[(]?\\s*((?:' + SECW + ')(?:\\s*\\d+)?(?:\\s*(?:x\\s*\\d+|\\(x\\s*\\d+\\)|bis))?)\\s*[\\])]?\\s*[:\\-–—]\\s*(\\S.*)$', 'i');
+  const cap = t => { const u = t === t.toUpperCase() ? t.toLowerCase() : t; return u.charAt(0).toUpperCase() + u.slice(1); };
+  function tidy(text) {
+    return decode(text || '').replace(/\r/g, '').replace(/\t/g, '    ').split('\n').flatMap(l => {
+      const r = l.replace(/\s+$/, ''); if (isEnd(r)) return [r.trim()];
+      const m = HEADRE.exec(r);
+      if (m) return /^\(?x\s*\d+\)?$/i.test(m[2].trim()) ? ['[' + cap(m[1]) + ' ' + m[2].trim().replace(/[()]/g, '') + ']'] : ['[' + cap(m[1]) + ']', m[2]];
+      const hd = headerOf(r); return hd != null ? ['[' + cap(hd) + ']'] : [r];
+    }).join('\n').replace(/\n{4,}/g, '\n\n\n');
+  }
+
+  /* ---------- accords proposés pour les passages qui n'en ont pas ----------
+     1. Une ligne presque identique à une ligne qui a des accords (un refrain répété, même sans titre) reprend exactement ses accords.
+     2. Sinon, le paragraphe cherche son modèle : d'abord un paragraphe aux paroles proches, à défaut celui qui a la même
+        découpe (nombre de lignes, nombre de syllabes par ligne, même partie).
+     3. Dans la ligne, l'accord est placé à la même proportion de syllabes que dans le modèle, au début d'un mot.
+     Les accords proposés s'écrivent {{?C}} ; ceux qui existent déjà sont retirés puis recalculés. */
+  const VOW = /[aeiouyàâäéèêëîïôöùûüœæ]+/gi;
+  const syl = w => { const f = w.toLowerCase(); let n = (f.match(VOW) || []).length; if (n > 1 && /(?:[^aeiouyàâäéèêëîïôöùûüœæ]e|[^aeiouyàâäéèêëîïôöùûüœæ]es|ent)$/.test(f)) n--; return Math.max(1, n); };
+  const lineInfo = l => {
+    const ch = []; let out = '', last = 0, m; const re = /\{\{([%?]?)([^}]*)\}\}/g;
+    while ((m = re.exec(l))) { out += l.slice(last, m.index); if (!m[1]) ch.push({ pos: out.length, c: m[2].trim() }); last = re.lastIndex; }
+    out += l.slice(last);
+    const w = [...out.matchAll(/[\p{L}\p{N}'’]+/gu)].map(x => ({ i: x.index, e: x.index + x[0].length, k: fold(x[0]).replace(/['’]/g, ''), s: syl(x[0]) }));
+    let acc = 0; w.forEach(x => { x.cs = acc; acc += x.s; });
+    const endAt = out.trimEnd().length;
+    ch.forEach(c => { c.end = c.pos >= endAt || !w.some(x => x.e > c.pos); c.wi = c.end ? w.length : w.findIndex(x => x.e > c.pos); });
+    return { out, w, ch, S: acc };
+  };
+  /* plus longue suite commune de mots : sert à mesurer la ressemblance et à aligner deux lignes */
+  const lcs = (a, b) => {
+    const n = a.length, m = b.length, d = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+    for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) d[i][j] = a[i - 1].k === b[j - 1].k ? d[i - 1][j - 1] + 1 : Math.max(d[i - 1][j], d[i][j - 1]);
+    const pairs = []; let i = n, j = m;
+    while (i > 0 && j > 0) { if (a[i - 1].k === b[j - 1].k) { pairs.unshift([i - 1, j - 1]); i--; j--; } else if (d[i - 1][j] >= d[i][j - 1]) i--; else j--; }
+    return { sim: n + m ? (2 * pairs.length) / (n + m) : 0, pairs };
+  };
+  function fillLine(dst, src) {
+    if (!src.ch.length || !dst.w.length) return null;
+    const al = lcs(src.w, dst.w), close = al.sim >= 0.6; let lastW = -1; const ins = [];
+    src.ch.forEach(c => {
+      let ti;
+      if (c.end) ti = dst.w.length;
+      else {
+        const pr = close ? al.pairs.filter(p => p[0] <= c.wi).pop() : null;
+        if (pr) ti = pr[1] + (c.wi - pr[0]);
+        else { const target = (src.w[c.wi].cs * dst.S) / Math.max(src.S, 1); ti = 0; dst.w.forEach((x, k) => { if (Math.abs(x.cs - target) < Math.abs(dst.w[ti].cs - target)) ti = k; }); }
+      }
+      if (ti <= lastW) ti = lastW + 1; lastW = ti;
+      ins.push({ pos: ti >= dst.w.length ? null : dst.w[ti].i, c: c.c });
+    });
+    let line = dst.out.replace(/\s+$/, '');
+    ins.filter(x => x.pos == null).forEach(x => { line += ' {{?' + x.c + '}}'; });
+    ins.filter(x => x.pos != null).reverse().forEach(x => { line = line.slice(0, x.pos) + '{{?' + x.c + '}}' + line.slice(x.pos); });
+    return { line, n: ins.length };
+  }
   function autofill(text) {
-    const L = text.replace(/\r/g, '').split('\n'), blocks = []; let cur = null, kind = '', closed = false;
+    const L = text.replace(/\r/g, '').split('\n').map(l => l.replace(/\{\{\?[^}]*\}\}/g, '').replace(/\s+$/, '')), blocks = []; let cur = null, kind = '', closed = false;
     L.forEach((l, i) => {
       const hd = headerOf(l);
       if (hd != null) { kind = kindOf(hd); cur = null; closed = L.slice(i + 1).findIndex(x => isEnd(x) || headerOf(x) != null); closed = closed >= 0 && isEnd(L[i + 1 + closed]); return; }
@@ -106,37 +162,31 @@
       if (!cur) { cur = { kind, idx: [], at: i }; blocks.push(cur); }
       cur.idx.push(i);
     });
-    blocks.forEach(b => { const t = b.idx.map(i => L[i]).join('\n'); b.inline = (t.match(/\{\{(?![%?])[^}]*\}\}/g) || []).length; b.any = t.includes('{{'); b.words = /\p{L}{2,}/u.test(plain(t)); });
-    const models = blocks.filter(b => b.inline > 0); let n = 0;
-    if (!models.length) return { text, n: 0 };
-    const split = l => { /* texte nu, positions des accords, débuts de mots */
-      const ch = []; let out = '', last = 0, m; const re = /\{\{([%?]?)([^}]*)\}\}/g;
-      while ((m = re.exec(l))) { out += l.slice(last, m.index); if (!m[1]) ch.push({ pos: out.length, c: m[2].trim() }); last = re.lastIndex; }
-      out += l.slice(last); const ws = [...out.matchAll(/\S+/g)].map(w => w.index);
-      return { out, ch, ws };
-    };
-    blocks.filter(b => !b.any && b.words).forEach(b => {
-      const score = m => (m.kind === b.kind ? 0 : 10) + Math.abs(m.idx.length - b.idx.length) * 2 + (m.at < b.at ? 0 : 1);
-      const M = models.slice().sort((x, y) => score(x) - score(y))[0];
-      b.idx.forEach((li, k) => {
-        const src = split(L[M.idx[k % M.idx.length]]), dst = split(L[li]); if (!src.ch.length || !dst.ws.length) return;
-        let lastW = -1; const ins = [];
-        src.ch.forEach(c => {
-          const wi = src.ws.filter(p => p <= c.pos).length - 1, atEnd = c.pos >= src.out.trimEnd().length;
-          let ti = atEnd ? dst.ws.length : Math.round((Math.max(wi, 0) * dst.ws.length) / Math.max(src.ws.length, 1));
-          if (ti <= lastW) ti = lastW + 1; lastW = ti;
-          ins.push({ pos: ti >= dst.ws.length ? null : dst.ws[ti], c: c.c });
-        });
-        let line = dst.out.replace(/\s+$/, '');
-        ins.filter(x => x.pos == null).forEach(x => { line += ' {{?' + x.c + '}}'; n++; });
-        ins.filter(x => x.pos != null).reverse().forEach(x => { line = line.slice(0, x.pos) + '{{?' + x.c + '}}' + line.slice(x.pos); n++; });
-        L[li] = line;
+    const info = {}; blocks.forEach(b => { b.idx.forEach(i => (info[i] = lineInfo(L[i]))); b.inline = b.idx.reduce((a, i) => a + info[i].ch.length, 0); });
+    const models = blocks.filter(b => b.inline > 0), chorded = models.flatMap(b => b.idx.filter(i => info[i].ch.length)); let n = 0;
+    if (!models.length) return { text: L.join('\n'), n: 0 };
+    const twin = i => { let best = -1, bs = 0; chorded.forEach(j => { const s = lcs(info[j].w, info[i].w).sim; if (s > bs) { bs = s; best = j; } }); return bs >= 0.8 ? best : -1; };
+    const put = (i, src) => { const r = fillLine(info[i], src); if (r) { L[i] = r.line; n += r.n; } };
+    blocks.forEach(b => {
+      const empty = b.idx.filter(i => !info[i].ch.length && !L[i].includes('{{') && info[i].w.some(x => x.k.length > 1));
+      if (!empty.length) return;
+      if (b.inline > 0) { empty.forEach(i => { const t = twin(i); if (t >= 0) put(i, info[t]); }); return; }   /* paragraphe en partie annoté : seules les lignes jumelles */
+      /* modèle du paragraphe */
+      const psim = M => { const k = Math.min(M.idx.length, b.idx.length); let s = 0; for (let x = 0; x < k; x++) s += lcs(info[M.idx[x]].w, info[b.idx[x]].w).sim; return (s / k) * (k / Math.max(M.idx.length, b.idx.length)); };
+      const shape = M => { let d = 0, t = 0; b.idx.forEach((i, x) => { const a = info[i].S, c = info[M.idx[x % M.idx.length]].S; d += Math.abs(a - c); t += Math.max(a, c, 1); }); return d / t; };
+      const others = models.filter(M => M !== b);
+      let M = others.slice().sort((x, y) => psim(y) - psim(x))[0];
+      if (!M || psim(M) < 0.5) M = others.slice().sort((x, y) => { const sc = z => Math.abs(z.idx.length - b.idx.length) * 2 + shape(z) * 4 + (z.kind === b.kind ? 0 : 1.5) + (z.at < b.at ? 0 : 0.5); return sc(x) - sc(y); })[0];
+      b.idx.forEach((i, k) => {
+        if (!empty.includes(i)) return;
+        const t = twin(i); if (t >= 0) return put(i, info[t]);
+        if (M) put(i, info[M.idx[k % M.idx.length]]);
       });
     });
     return { text: L.join('\n'), n };
   }
   function parse(text) {
-    const chords = [], lines = decode(text || '').replace(/\r/g, '').split('\n').map(l => {
+    const chords = [], lines = tidy(text).split('\n').map(l => {
       if (isEnd(l)) return { type: 'end' };
       const hd = headerOf(l); if (hd != null) return { type: 'sec', t: hd };
       if (l.startsWith('>>>>')) return { type: 'tab', t: l.slice(4) };
@@ -200,23 +250,40 @@
         const n = k === 'all' ? songs.length : k === 'fav' ? songs.filter(s => meta(s.id).fav).length : songs.filter(s => (s.folder || 'Sans dossier') === k).length;
         chips.append(h('button', { type: 'button', class: k === filt ? 'on' : '', onclick: () => { filt = k; P.S.sgFilt = k; P.save(); draw(); } }, l, h('small', {}, String(n))));
       });
-      const words = fold(q).split(/\s+/).filter(Boolean);
-      let res = songs.filter(s => (filt === 'all' || (filt === 'fav' ? meta(s.id).fav : (s.folder || 'Sans dossier') === filt)));
-      if (words.length) res = res.filter(s => { const hay = fold(s.title + ' ' + (s.artist || '') + ' ' + (s.folder || '')), deep = fold(plain(s.text)); return words.every(w => hay.includes(w) || deep.includes(w)); });
-      res.sort(sort === 'recent' ? (a, b) => (b.updated || 0) - (a.updated || 0) : sort === 'artist' ? (a, b) => (a.artist || '').localeCompare(b.artist || '', 'fr') || a.title.localeCompare(b.title, 'fr') : (a, b) => a.title.localeCompare(b.title, 'fr'));
-      rows.innerHTML = ''; count.textContent = res.length + ' chanson' + (res.length > 1 ? 's' : '') + (words.length ? ' pour « ' + q + ' » (titres, artistes et paroles)' : '') + '.';
+      /* La recherche ignore dossiers et tri : elle classe par pertinence. Un mot de la recherche doit commencer un mot
+         du titre ou de l'artiste ; dans les paroles, seule la suite exacte des mots compte. */
+      const words = tok(q), fq = words.join(' ');
+      chips.hidden = sortSel.hidden = !!words.length;
+      let res;
+      if (words.length) {
+        const score = s => {
+          const tt = tok(s.title), ta = tok(s.artist), ft = tt.join(' '), fa = ta.join(' '), inW = t => words.every(w => t.some(x => x.startsWith(w)));
+          if (ft === fq) return 1000; if (ft.startsWith(fq)) return 700; if ((' ' + ft).includes(' ' + fq)) return 500; if (inW(tt)) return 400;
+          if (fa === fq) return 450; if ((' ' + fa).includes(' ' + fq)) return 350; if (inW(ta)) return 300; if (inW([...tt, ...ta])) return 250;
+          if (fq.length >= 4 && (ft.includes(fq) || fa.includes(fq))) return 100;
+          if (fq.length >= 4 && (' ' + tok(plain(s.text)).join(' ')).includes(' ' + fq)) return 50;
+          return 0;
+        };
+        res = songs.map(s => [score(s), s]).filter(x => x[0] > 0).sort((a, b) => b[0] - a[0] || a[1].title.localeCompare(b[1].title, 'fr')).map(x => x[1]);
+      } else {
+        res = songs.filter(s => (filt === 'all' || (filt === 'fav' ? meta(s.id).fav : (s.folder || 'Sans dossier') === filt)));
+        res.sort(sort === 'recent' ? (a, b) => (b.updated || 0) - (a.updated || 0) : sort === 'artist' ? (a, b) => (a.artist || '').localeCompare(b.artist || '', 'fr') || a.title.localeCompare(b.title, 'fr') : (a, b) => a.title.localeCompare(b.title, 'fr'));
+      }
+      rows.innerHTML = ''; count.textContent = words.length ? (res.length ? res.length + ' résultat' + (res.length > 1 ? 's' : '') + ' pour « ' + q.trim() + ' », du plus proche au plus lointain.' : '') : res.length + ' chanson' + (res.length > 1 ? 's' : '') + '.';
       const row = s => songRow(s, draw);
       /* dès les premières lettres d'un artiste, on propose sa page */
       sugg.innerHTML = '';
       if (words.length) {
-        const fq = fold(q).trim(), hit = artistsOf(songs).filter(a => { const fa = fold(a.name); return fa.startsWith(fq) || fa.split(/\s+/).some(w => w.startsWith(fq)) || (fq.length > 2 && fa.includes(fq)); }).slice(0, 6);
+        const hit = artistsOf(songs).filter(a => { const fa = fold(a.name); return fa.startsWith(fq) || fa.split(/\s+/).some(w => w.startsWith(fq)) || (fq.length > 2 && fa.includes(fq)); }).slice(0, 6);
         if (hit.length) sugg.append(h('span', { class: 'hint' }, hit.length > 1 ? 'Artistes :' : 'Artiste :'), ...hit.map(a => h('a', { href: artistHref(a.name) }, a.name, h('small', {}, String(a.n)))));
       }
-      if (!res.length) rows.append(h('p', { class: 'empty' }, words.length ? 'Aucune chanson ne correspond. Essaie un autre mot, ou change de dossier.' : 'Ce dossier est vide. Ajoute une chanson pour commencer.'));
-      else if (sort === 'artist' && !words.length) { artistsOf(res).forEach(a => rows.append(h('h3', { class: 'sfold' }, h('a', { href: artistHref(a.name) }, a.name)), ...res.filter(s => fold(s.artist) === fold(a.name)).map(row))); const rest = res.filter(s => !(s.artist || '').trim()); if (rest.length) rows.append(h('h3', { class: 'sfold' }, 'Sans artiste'), ...rest.map(row)); }
-      else if (filt === 'all' && !words.length && sort !== 'recent') folders.forEach(f => { const g = res.filter(s => (s.folder || 'Sans dossier') === f); if (g.length) rows.append(h('h3', { class: 'sfold' }, f), ...g.map(row)); });
+      if (!res.length) rows.append(h('p', { class: 'empty' }, words.length ? 'Aucune chanson ne correspond à « ' + q.trim() + ' ». La recherche porte sur les titres, les artistes, et les suites de mots exactes dans les paroles.' : 'Ce dossier est vide. Ajoute une chanson pour commencer.'));
+      else if (words.length) rows.append(...res.map(row));
+      else if (sort === 'artist') { artistsOf(res).forEach(a => rows.append(h('h3', { class: 'sfold' }, h('a', { href: artistHref(a.name) }, a.name)), ...res.filter(s => fold(s.artist) === fold(a.name)).map(row))); const rest = res.filter(s => !(s.artist || '').trim()); if (rest.length) rows.append(h('h3', { class: 'sfold' }, 'Sans artiste'), ...rest.map(row)); }
+      else if (filt === 'all' && sort !== 'recent') folders.forEach(f => { const g = res.filter(s => (s.folder || 'Sans dossier') === f); if (g.length) rows.append(h('h3', { class: 'sfold' }, f), ...g.map(row)); });
       else rows.append(...res.map(row));
     };
+    const sortSel = P.sel([['title', 'Par titre'], ['artist', 'Par artiste'], ['recent', 'Les plus récentes']], sort, v => { sort = v; P.S.sgSort = v; P.save(); draw(); });
     const file = h('input', { type: 'file', accept: '.json,.txt,application/json,text/plain', hidden: true, onchange: e => {
       const f = e.target.files[0]; if (!f) return; const rd = new FileReader();
       rd.onload = () => {
@@ -233,7 +300,7 @@
     };
     el.append(P.row(h('a', { class: 'btn solid', href: '#/chansons/new' }, 'Ajouter une chanson'), P.btn('Une chanson au hasard', () => { const a = all(); if (a.length) location.hash = '#/chansons/' + P.pick(a).id; }), P.btn('Importer un fichier', () => file.click()), P.btn('Exporter mes chansons', exp), file),
       h('div', { class: 'sfind' }, h('input', { type: 'search', placeholder: 'Chercher un titre, un artiste, des paroles', 'aria-label': 'Chercher une chanson', oninput: e => { q = e.target.value; draw(); } }),
-        P.sel([['title', 'Par titre'], ['artist', 'Par artiste'], ['recent', 'Les plus récentes']], sort, v => { sort = v; P.S.sgSort = v; P.save(); draw(); })),
+        sortSel),
       sugg, chips, count, rows);
     draw();
     /* espace administrateur */
@@ -271,8 +338,9 @@
     M.opened = Date.now(); saveDB();
     let parsed, sugN = 0, repN = 0;
     const build = () => {
-      let t = s.text; sugN = 0;
-      if (P.S.sgSug !== false) { if (!t.includes('{{?')) { const r = autofill(t); t = r.text; sugN = r.n; } else sugN = (t.match(/\{\{\?/g) || []).length; } else t = t.replace(/\{\{\?[^}]*\}\}/g, '');
+      /* les accords marqués « ? » ne sont jamais figés : ils sont recalculés à chaque affichage */
+      let t = tidy(s.text).replace(/\{\{\?[^}]*\}\}/g, ''); sugN = 0;
+      if (P.S.sgSug !== false) { const r = autofill(t); t = r.text; sugN = r.n; }
       parsed = parse(t);
       if (P.S.sgExp !== false) parsed.lines = expand(parsed.lines);
       repN = parsed.lines.filter(l => l.type === 'sec' && l.rep).length;
@@ -420,6 +488,7 @@
     const save = async () => {
       if (!title.value.trim()) { msg.textContent = 'Donne un titre à la chanson.'; msg.className = 'fb ko'; title.focus(); return; }
       let text = ta.value; if (!text.includes('{{')) text = convert(text);
+      text = tidy(text);
       const id = s ? s.id : 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
       const rec = { id, title: title.value.trim(), artist: artist.value.trim(), folder: folderVal(), yt: yt.value.trim(), src: src.value.trim(), key, minor, text, updated: Date.now() };
       if (dest === 'cloud') {
@@ -449,7 +518,8 @@
         })),
         P.field('Paroles et accords', ta),
         admin ? P.field('Où enregistrer', P.seg([['cloud', 'En ligne, pour tout le monde'], ['local', 'Sur cet appareil seulement']], dest, v => (dest = v))) : s && !s.local && under(s.id) ? h('p', { class: 'hint' }, 'Tu modifies une copie personnelle : elle sera enregistrée sur cet appareil et remplacera chez toi la version d\'origine. La supprimer rétablit l\'originale.') : null,
-        P.row(P.btn('Enregistrer', save, 'solid'), P.btn('Convertir les accords écrits au-dessus des paroles', () => { const c = convert(ta.value); msg.textContent = c === ta.value ? 'Rien à convertir : aucune ligne d\'accords isolée n\'a été trouvée.' : 'Converti. Vérifie le placement des accords, puis enregistre.'; msg.className = 'fb'; ta.value = c; }), P.btn('Proposer des accords pour les passages qui n\'en ont pas', () => { const r = autofill(ta.value); ta.value = r.text; msg.textContent = r.n ? r.n + ' accord' + (r.n > 1 ? 's proposés' : ' proposé') + ', écrits avec un point d\'interrogation ({{?C}}). Vérifie-les ; enlève le « ? » de ceux que tu valides.' : 'Rien à proposer : soit tous les passages ont des accords, soit aucun n\'en a.'; msg.className = 'fb'; }), s ? P.btn('Supprimer', del) : null),
+        P.row(P.btn('Enregistrer', save, 'solid'), P.btn('Convertir les accords écrits au-dessus des paroles', () => { const c = convert(ta.value); msg.textContent = c === ta.value ? 'Rien à convertir : aucune ligne d\'accords isolée n\'a été trouvée.' : 'Converti. Vérifie le placement des accords, puis enregistre.'; msg.className = 'fb'; ta.value = c; }), P.btn('Mettre en forme', () => { const t = tidy(ta.value.includes('{{') ? ta.value : convert(ta.value)); msg.textContent = t === ta.value ? 'Le texte est déjà en forme.' : 'Titres de parties et espaces remis en forme.'; msg.className = 'fb'; ta.value = t; }),
+          P.btn('Proposer des accords pour les passages qui n\'en ont pas', () => { const r = autofill(tidy(ta.value)); ta.value = r.text; msg.textContent = r.n ? r.n + ' accord' + (r.n > 1 ? 's proposés' : ' proposé') + ', écrits avec un point d\'interrogation ({{?C}}). Les anciennes propositions ont été remplacées. Enlève le « ? » de ceux que tu veux figer : les autres sont recalculés à chaque affichage.' : 'Rien à proposer : soit tous les passages ont des accords, soit aucun n\'en a.'; msg.className = 'fb'; }), s ? P.btn('Supprimer', del) : null),
         msg,
         P.prose(`<h4>Depuis un site de grilles</h4>
 <p>Colle l'adresse de la page dans « Page d'origine », touche « Ouvrir cette page », puis sur le site ouvre le mode édition de la chanson (celui où les accords apparaissent entre accolades). Sélectionne tout le texte, copie-le, reviens ici et touche « Coller le texte copié ». L'artiste et le titre sont déjà remplis d'après l'adresse.</p>
@@ -460,7 +530,8 @@
 <li>Une ligne entre crochets, <code>[Refrain]</code>, devient un titre de partie (« Refrain : » est reconnu aussi).</li>
 <li><b>Écris le refrain une seule fois</b> sous son titre. Ensuite, une ligne <code>[Refrain]</code> toute seule, suivie d'une ligne vide, le rappelle : il sera affiché en entier à cet endroit. Cela vaut pour n'importe quelle partie (<code>[Pont]</code>, <code>[Couplet 1]</code>…).</li>
 <li><b>Où s'arrête une partie.</b> Par défaut à la première ligne vide : le refrain, c'est le paragraphe écrit juste sous son titre, et ce qui suit n'a pas besoin de titre. Si ton refrain contient lui-même des lignes vides, ferme-le avec <code>[/Refrain]</code> : tout ce qui est entre les deux balises en fait partie.</li>
-<li>Avec un point d'interrogation, <code>{{?Am}}</code>, l'accord est marqué « proposé » et s'affiche en orange. Les passages sans aucun accord en reçoivent automatiquement à l'affichage, recopiés d'un passage semblable ; rien n'est modifié dans ton texte tant que tu n'utilises pas le bouton ci-dessus.</li>
+<li>Avec un point d'interrogation, <code>{{?Am}}</code>, l'accord est marqué « proposé » et s'affiche en orange. Les lignes sans accord en reçoivent automatiquement à l'affichage : une ligne presque identique à une ligne déjà annotée reprend ses accords, les autres suivent le paragraphe qui leur ressemble le plus. Ces accords « ? » sont recalculés à chaque affichage ; pour en figer un, enlève son point d'interrogation.</li>
+<li>La mise en forme est automatique à l'enregistrement : « Intro : la la la » devient <code>[Intro]</code> suivi de « la la la » à la ligne, « Refrain : » devient <code>[Refrain]</code>.</li>
 <li>Pour une tablature, commence chaque ligne par quatre chevrons : <code>&gt;&gt;&gt;&gt;</code>.</li>
 <li>Les accords s'écrivent en lettres (C D E F G A B), avec <code>#</code> ou <code>b</code>, et une basse éventuelle après une barre : <code>C/E</code>.</li>
 <li>Tu peux aussi coller une grille où les accords sont sur une ligne au-dessus des paroles : elle est convertie à l'enregistrement.</li>

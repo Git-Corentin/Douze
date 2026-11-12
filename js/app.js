@@ -86,7 +86,7 @@
   P.rerender = () => route(true);
   buildNav(); P.midiInit();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
-  let wasMob = P.mob; window.addEventListener('resize', () => { if (P.mob !== wasMob) { wasMob = P.mob; route(true); } });
+  let wasMob = P.mob; window.addEventListener('resize', () => { if (P.mob === wasMob) return; wasMob = P.mob; const a = document.activeElement; /* ne pas effacer une saisie en cours quand on tourne le téléphone */ if (/(\/edit|\/new)$/.test(location.hash) || (a && /^(TEXTAREA|INPUT)$/.test(a.tagName))) return; route(true); });
   window.addEventListener('hashchange', () => route(false));
   route(false);
 })();
