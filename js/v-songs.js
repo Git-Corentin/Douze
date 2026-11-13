@@ -238,9 +238,11 @@
       P.row(h('a', { class: 'btn', href: '#/chansons/new' }, 'Ajouter une chanson'), h('a', { class: 'btn', target: '_blank', rel: 'noopener', href: 'https://www.youtube.com/results?search_query=' + encodeURIComponent(name) }, 'Chercher ' + name + ' sur YouTube')));
   }
 
+  let lastQ = '', listY = 0;
   /* ============ liste ============ */
   function list(el) {
-    let q = '', filt = P.S.sgFilt || 'all', sort = P.S.sgSort || 'title';
+    let q = lastQ, filt = P.S.sgFilt || 'all', sort = P.S.sgSort || 'title';
+    P.onLeave = () => { lastQ = q; listY = window.scrollY; };
     const rows = h('div', { class: 'songs' }), chips = h('div', { class: 'fchips' }), count = h('p', { class: 'hint' }), sugg = h('div', { class: 'fchips sugg' });
     const draw = () => {
       const songs = all(), folders = [...new Set(songs.map(s => s.folder || 'Sans dossier'))].sort((a, b) => a.localeCompare(b, 'fr'));
@@ -299,10 +301,11 @@
       const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(mine, null, 1)], { type: 'application/json' })), download: 'songs.json' }); document.body.append(a); a.click(); a.remove();
     };
     el.append(P.row(h('a', { class: 'btn solid', href: '#/chansons/new' }, 'Ajouter une chanson'), P.btn('Une chanson au hasard', () => { const a = all(); if (a.length) location.hash = '#/chansons/' + P.pick(a).id; }), P.btn('Importer un fichier', () => file.click()), P.btn('Exporter mes chansons', exp), file),
-      h('div', { class: 'sfind' }, h('input', { type: 'search', placeholder: 'Chercher un titre, un artiste, des paroles', 'aria-label': 'Chercher une chanson', oninput: e => { q = e.target.value; draw(); } }),
+      h('div', { class: 'sfind' }, h('input', { type: 'search', value: lastQ, placeholder: 'Chercher un titre, un artiste, des paroles', 'aria-label': 'Chercher une chanson', oninput: e => { q = e.target.value; draw(); } }),
         sortSel),
       sugg, chips, count, rows);
     draw();
+    if (listY) { const y = listY; listY = 0; requestAnimationFrame(() => window.scrollTo(0, y)); }
     /* espace administrateur */
     const cl = h('div', { class: 'cloud' });
     const drawCloud = () => {
@@ -373,15 +376,39 @@
       if (hover) b.addEventListener('mouseenter', () => { if (!b.classList.contains('hid')) showCard(c, false); });
       return b;
     };
+    /* Une ligne est découpée en mots insécables. Un accord placé au milieu d'un mot ne crée donc jamais de point de coupure :
+       le retour à la ligne ne peut se faire qu'entre deux mots. */
+    const pieces = t => t.match(/\s*\S+\s*|\s+/g) || [];
+    const lineEl = l => {
+      const cls = 'sl' + (l.has ? ' has' : '') + (l.rep ? ' rep' : '');
+      if (!l.has) return h('div', { class: cls }, l.parts.map(p => [p.raw ? chordBtn(p) : null, p.text]));
+      const atoms = [];
+      l.parts.forEach(p => {
+        const ts = pieces(p.text || '');
+        if (p.raw && p.free) atoms.push({ p, free: true, t: '' });
+        else if (p.raw) atoms.push({ p, t: ts.length ? ts.shift() : '' });
+        ts.forEach(t => atoms.push({ t }));
+      });
+      const units = []; let prev = null;
+      atoms.forEach(a => {
+        if (!prev || prev.free || a.free || /\s$/.test(prev.t) || /^\s/.test(a.t) || (!a.t && !a.p)) units.push([]);
+        units[units.length - 1].push(a); prev = a;
+      });
+      return h('div', { class: cls }, units.map(u => h('span', { class: 'sw' }, u.map(a => (a.free ? chordBtn(a.p) : h('span', { class: 'sg' }, a.p ? chordBtn(a.p) : null, h('span', { class: 'sx' }, a.t || ' ')))))));
+    };
     const pane = () => h('div', { class: 'pane' }, parsed.lines.map(l => {
       if (l.type === 'sec') return h('h3', { class: 'ssec' + (l.rep ? ' rep' : '') }, l.t, l.rep ? h('small', {}, ' repris') : null);
       if (l.type === 'tab') return h('pre', { class: 'stab' }, l.t);
       if (l.type === 'blank') return h('div', { class: 'sblank' });
       if (l.type === 'end') return null;
-      return h('div', { class: 'sl' + (l.has ? ' has' : '') + (l.rep ? ' rep' : '') }, l.parts.map(p => (!p.raw ? h('span', { class: 'sg' }, h('span', { class: 'sx' }, p.text))
-        : p.free ? [chordBtn(p), p.text ? h('span', { class: 'sg' }, h('span', { class: 'sx' }, p.text)) : null]
-          : h('span', { class: 'sg' }, chordBtn(p), h('span', { class: 'sx' }, p.text || ' ')))));
+      return lineEl(l);
     }));
+    /* réduit le texte juste assez pour que la ligne la plus longue tienne sur la largeur de l'écran */
+    const fit = () => {
+      const p = panes.firstChild; panes.classList.add('nowrap'); let mx = 0; p.querySelectorAll('.sl').forEach(e => { mx = Math.max(mx, e.scrollWidth); });
+      const w = p.clientWidth; panes.classList.remove('nowrap');
+      if (mx > w + 1) { size = Math.max(0.55, Math.floor(((size * w) / mx) * 100) / 100); P.S.sgSize = size; P.save(); redraw(); }
+    };
     const redraw = () => {
       const y = panes.firstChild ? panes.firstChild.scrollTop : 0;
       panes.innerHTML = ''; panes.append(pane()); if (split) panes.append(pane());
@@ -389,7 +416,7 @@
       const pc = T.mod(det.pc + tr);
       note.textContent = [sugN ? 'En orange : ' + sugN + ' accord' + (sugN > 1 ? 's proposés' : ' proposé') + ' par le site pour les passages sans accords, d\'après un passage semblable. À vérifier à l\'oreille.' : '', repN ? 'Les parties rappelées par leur seul titre (refrain) sont recopiées à leur place.' : ''].filter(Boolean).join(' ');
       note.hidden = !note.textContent;
-      keyLab.innerHTML = ''; keyLab.append(h('b', {}, det.none ? 'Sans accords' : keyName(pc, det.minor)), h('small', {}, tr ? 'originale : ' + keyName(det.pc, det.minor) : 'tonalité originale'));
+      keyLab.innerHTML = ''; keyLab.append(h('b', {}, det.none ? 'Sans accords' : keyName(pc, det.minor)), h('small', {}, tr ? 'orig. ' + keyName(det.pc, det.minor) : 'originale'));
     };
     const note = h('p', { class: 'hint snote', hidden: true });
     /* la tonalité du site suit celle de la chanson */
@@ -406,7 +433,7 @@
     };
     /* défilement automatique */
     const scrollB = P.btn('Défiler', () => (raf ? stopScroll() : startScroll()), 'play');
-    const stopScroll = () => { if (raf) cancelAnimationFrame(raf); raf = null; scrollB.textContent = 'Défiler'; scrollB.classList.remove('on'); A.wake(false); };
+    const stopScroll = () => { if (raf) cancelAnimationFrame(raf); raf = null; scrollB.textContent = 'Défiler'; scrollB.classList.remove('on'); if (!A.loops.size) A.wake(false); };
     const startScroll = () => {
       let last = 0, acc = 0; scrollB.textContent = 'Arrêter'; scrollB.classList.add('on'); A.wake(true);
       const step = ts => {
@@ -444,7 +471,7 @@
         P.field('Accords proposés là où il en manque', P.seg([[true, 'Affichés'], [false, 'Masqués']], P.S.sgSug !== false, v => { P.S.sgSug = v; P.save(); build(); redraw(); }))),
       P.row(P.field('Accords affichés', P.seg([['ch', 'Noms'], ['deg', 'Degrés'], ['both', 'Les deux'], ['hide', 'Masqués']], mode, v => { mode = v; P.S.sgMode = v; P.save(); redraw(); })),
         P.field('Écran', P.seg([[false, 'Entier'], [true, 'Coupé en deux']], split, v => { split = v; redraw(); if (v) panes.scrollIntoView({ block: 'start' }); })),
-        P.field('Taille du texte', P.row(P.btn('A−', () => { size = Math.max(0.7, +(size - 0.1).toFixed(2)); P.S.sgSize = size; P.save(); redraw(); }), P.btn('A+', () => { size = Math.min(1.8, +(size + 0.1).toFixed(2)); P.S.sgSize = size; P.save(); redraw(); }))),
+        P.field('Taille du texte', P.row(P.btn('A−', () => { size = Math.max(0.7, +(size - 0.1).toFixed(2)); P.S.sgSize = size; P.save(); redraw(); }), P.btn('A+', () => { size = Math.min(1.8, +(size + 0.1).toFixed(2)); P.S.sgSize = size; P.save(); redraw(); }), P.btn('Ajuster à l\'écran', fit), P.btn('Normale', () => { size = 1; P.S.sgSize = 1; P.save(); redraw(); }))),
         P.range('Vitesse de défilement', 4, 90, speed, v => { speed = v; P.S.sgSpeed = v; P.save(); }, ' px/s')),
       h('p', { class: 'hint' }, '« Masqués » remplace chaque accord par un point d\'interrogation : cherche-le à l\'oreille, puis touche-le pour vérifier. « Coupé en deux » affiche la chanson dans deux zones qui défilent séparément, par exemple le refrain en haut et les couplets en bas.'),
       P.row(h('a', { class: 'btn', href: '#/chansons/' + s.id + '/edit' }, 'Modifier la chanson'), s.src ? h('a', { class: 'btn', href: s.src, target: '_blank', rel: 'noopener' }, 'Page d\'origine') : null,
@@ -460,7 +487,10 @@
 
   /* ============ édition ============ */
   function edit(el, s) {
-    const d = s || P.draft || {}; P.draft = null;
+    /* brouillon : ce qui est saisi est gardé tant que ce n'est pas enregistré (retour arrière involontaire, page rechargée) */
+    const DK = 'douze-draft', did = s ? s.id : 'new'; let dr = null; try { dr = JSON.parse(localStorage.getItem(DK) || 'null'); } catch (e) { /* pas de brouillon */ }
+    const restored = !!(dr && dr.id === did && !P.draft);
+    const d = restored ? { ...(s || {}), ...dr.f } : s || P.draft || {}; P.draft = null;
     const folders = [...new Set(all().map(x => x.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
     const inp = (v, ph) => h('input', { type: 'text', value: v || '', placeholder: ph || '' });
     const title = inp(d.title, 'Titre'), artist = inp(d.artist, 'Artiste'), yt = inp(d.yt, 'https://www.youtube.com/watch?v=…'), src = inp(d.src, 'Adresse de la page où tu as trouvé la chanson');
@@ -484,6 +514,9 @@
     const srcA = h('a', { class: 'btn', target: '_blank', rel: 'noopener', href: d.src || '#', hidden: !d.src }, 'Ouvrir cette page');
     const ta = h('textarea', { rows: 18, spellcheck: 'false', class: 'sedit', 'aria-label': 'Paroles et accords' }); ta.value = d.text || '';
     let key = d.key == null ? '' : String(d.key), minor = !!d.minor; const msg = h('p', { class: 'fb', 'aria-live': 'polite' });
+    const keep = () => { try { localStorage.setItem(DK, JSON.stringify({ id: did, f: { title: title.value, artist: artist.value, yt: yt.value, src: src.value, text: ta.value, folder: folderVal() } })); } catch (e) { /* tant pis */ } };
+    const drop = () => { try { localStorage.removeItem(DK); } catch (e) { /* rien */ } };
+    [title, artist, yt, src, ta].forEach(x => x.addEventListener('input', keep));
     const admin = cloudOn && !!sess; let dest = admin && (!s || !s.local) ? 'cloud' : 'local';
     const save = async () => {
       if (!title.value.trim()) { msg.textContent = 'Donne un titre à la chanson.'; msg.className = 'fb ko'; title.focus(); return; }
@@ -495,7 +528,7 @@
         msg.textContent = 'Envoi en ligne…'; msg.className = 'fb';
         try { await Cloud.save(rec); delete DB.songs[id]; DB.hidden = DB.hidden.filter(x => x !== id); } catch (err) { msg.textContent = err.message + ' La chanson n\'a pas été enregistrée.'; msg.className = 'fb ko'; return; }
       } else DB.songs[id] = rec;
-      saveDB(); location.hash = '#/chansons/' + id;
+      drop(); saveDB(); location.hash = '#/chansons/' + id;
     };
     const del = async () => {
       if (!s) return;
@@ -507,7 +540,8 @@
       if (!(s.local && base)) delete DB.meta[s.id];
       saveDB(); location.hash = s.local && base ? '#/chansons/' + s.id : '#/chansons';
     };
-    el.append(h('p', { class: 'sback' }, h('a', { href: s ? '#/chansons/' + s.id : '#/chansons' }, s ? 'Revenir à la chanson' : 'Toutes les chansons')),
+    el.append(h('p', { class: 'sback' }, h('a', { href: s ? '#/chansons/' + s.id : '#/chansons', onclick: drop }, s ? 'Revenir à la chanson sans enregistrer' : 'Toutes les chansons')),
+      restored ? h('p', { class: 'fb' }, 'Brouillon retrouvé : ta saisie non enregistrée a été rétablie. ', P.btn('Repartir de zéro', () => { drop(); P.rerender(); })) : null,
       P.tool(s ? 'Modifier' : 'Nouvelle chanson',
         h('div', { class: 'sform' }, P.field('Titre', title), P.field('Artiste', artist), h('div', { class: 'field wide' }, h('span', { class: 'field-l' }, 'Dossier'), fpick, newF), P.field('Lien YouTube (facultatif)', yt),
           P.field('Tonalité d\'origine', P.sel([['', 'Détection automatique'], ...T.KEYS.flatMap((k, i) => [[i + 'M', T.fmt(k) + ' majeur'], [i + 'm', T.fmt(T.MINKEYS[(i + 9) % 12]) + ' mineur']])], key === '' ? '' : key + (minor ? 'm' : 'M'), v => { key = v === '' ? '' : String(parseInt(v, 10)); minor = v.endsWith('m'); }))),
