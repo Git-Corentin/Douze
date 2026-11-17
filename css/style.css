@@ -333,6 +333,8 @@ input[type=password] { border: 1.5px solid var(--laque); border-radius: 10px; ba
 button:disabled { opacity: .55; cursor: default; }
 .sback { font-size: .9rem; color: var(--gris); margin: 0 0 12px; }
 .yt { margin: 0 0 12px; } .yt-f { aspect-ratio: 16 / 9; max-width: 560px; } .yt iframe { width: 100%; height: 100%; border: 0; border-radius: 12px; background: var(--laque); display: block; }
+.ythelp { margin: 6px 0 0; max-width: 640px; } .ythelp summary { cursor: pointer; font-size: .86rem; color: var(--gris); } .ythelp[open] { background: var(--papier); border: 1.5px solid var(--laque); border-radius: 14px; padding: 10px 14px; } .ythelp[open] summary { color: var(--laque); font-weight: 600; margin-bottom: 6px; } .ythelp .prose p { font-size: .92rem; }
+.yt.pin .ythelp { display: none; }
 .yt .row { margin: 8px 0 0; } .yt .btn { padding: 5px 12px; font-size: .86rem; min-height: 0; }
 .yt.pin { position: sticky; top: var(--stick); z-index: 17; background: var(--ivoire); padding: 6px 0; } .yt.pin .yt-f { max-width: 300px; }
 .sbar { position: sticky; top: var(--stick); z-index: 18; background: var(--ivoire); display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1.5px solid var(--laque); }

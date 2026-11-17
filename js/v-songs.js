@@ -453,15 +453,38 @@
 
     /* vidéo */
     const id = ytId(s.yt), yt = h('div', { class: 'yt' }), frame = h('div', { class: 'yt-f' }), vctl = h('div', { class: 'row' });
-    /* épingler ne fait que changer le style : le lecteur n'est jamais recréé, la lecture continue */
+    /* Lecteur youtube.com (et non youtube-nocookie) : c'est le seul qui reconnaît ton compte, donc Premium, et qui évite
+       « Confirmez que vous n'êtes pas un robot » quand le navigateur laisse passer les cookies de YouTube.
+       Épingler ne fait que changer le style : le lecteur n'est jamais recréé, la lecture continue. */
+    const watch = 'https://www.youtube.com/watch?v=' + id;
+    const embed = () => (P.S.ytPriv ? 'https://www.youtube-nocookie.com/embed/' : 'https://www.youtube.com/embed/') + id + '?playsinline=1&rel=0';
+    const openYT = e => {
+      /* sur ordinateur, une petite fenêtre à part : la page YouTube y est « chez elle », ton compte et Premium y sont reconnus.
+         Sur téléphone, le lien ouvre l'application YouTube. */
+      if (P.mob || !window.matchMedia('(hover: hover)').matches) return;
+      e.preventDefault();
+      const w = 520, ht = 320, win = window.open(watch, 'douze-youtube', `popup=yes,width=${w},height=${ht},left=${Math.max(0, screen.availWidth - w - 24)},top=${Math.max(0, screen.availHeight - ht - 80)}`);
+      if (!win) location.href = watch; else { win.focus(); if (vid) { vid = false; drawVid(); } }
+    };
     const drawVid = () => {
       yt.classList.toggle('pin', pin && vid); frame.hidden = !vid;
-      if (vid && !frame.firstChild) frame.append(h('iframe', { src: 'https://www.youtube-nocookie.com/embed/' + id + '?playsinline=1&rel=0', title: 'Vidéo : ' + s.title, allow: 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture', allowfullscreen: true }));
+      if (vid && !frame.firstChild) frame.append(h('iframe', { src: embed(), title: 'Vidéo : ' + s.title, allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share', referrerpolicy: 'strict-origin-when-cross-origin', allowfullscreen: true }));
       if (!vid) frame.innerHTML = '';
-      vctl.innerHTML = ''; vctl.append(P.btn(vid ? 'Fermer la vidéo' : 'Afficher la vidéo', () => { vid = !vid; drawVid(); }));
+      vctl.innerHTML = '';
+      vctl.append(P.btn(vid ? 'Fermer la vidéo' : 'Afficher la vidéo', () => { vid = !vid; drawVid(); }));
       if (vid) vctl.append(P.btn(pin ? 'Détacher la vidéo' : 'Garder la vidéo visible', () => { pin = !pin; drawVid(); }));
+      vctl.append(h('a', { class: 'btn', href: watch, target: '_blank', rel: 'noopener', onclick: openYT }, P.mob ? 'Ouvrir dans YouTube' : 'Ouvrir dans une fenêtre YouTube'));
+      if (vid) vctl.append(P.btn('Recharger', () => { frame.innerHTML = ''; drawVid(); }));
+      help.hidden = !vid;
     };
-    if (id) yt.append(frame, vctl);
+    const help = h('details', { class: 'ythelp' }, h('summary', {}, 'YouTube demande de se connecter, ou affiche des pubs malgré Premium ?'),
+      P.prose(`<p>La vidéo intégrée n'est reconnue par YouTube que si ton navigateur lui laisse voir ta connexion, ce qui n'est pas toujours le cas : <b>Safari</b> (donc tout navigateur sur iPhone) et <b>Firefox</b> la cachent toujours aux sites tiers, <b>Chrome</b> la laisse passer en général, sauf si les cookies tiers y sont bloqués. Te connecter dans un autre onglet ne change rien à la vidéo intégrée.</p>
+<p><b>Sur téléphone</b> : touche « Ouvrir dans YouTube ». La vidéo part dans l'application, avec ton compte et Premium. Grâce à la lecture en arrière-plan de Premium, la musique continue quand tu reviens sur Douze pour lire les accords.</p>
+<p><b>Sur ordinateur</b> : « Ouvrir dans une fenêtre YouTube » ouvre une petite fenêtre que tu places à côté des paroles. Avec Chrome, tu peux aussi autoriser les cookies tiers pour ce site (icône à gauche de l'adresse, puis « Cookies et données de site »), puis « Recharger ».</p>
+<p>Le message « robot » apparaît aussi plus souvent derrière un VPN ou un réseau partagé.</p>`),
+      P.row(P.field('Lecteur intégré', P.seg([[false, 'Avec mon compte YouTube'], [true, 'Confidentialité renforcée']], !!P.S.ytPriv, v => { P.S.ytPriv = v; P.save(); frame.innerHTML = ''; drawVid(); }))),
+      h('p', { class: 'hint' }, '« Confidentialité renforcée » n\'envoie aucun cookie à YouTube : jamais de Premium, et le message « robot » est plus fréquent. À n\'utiliser que si tu préfères ne pas être suivi.'));
+    if (id) yt.append(frame, vctl, help);
     else yt.append(h('a', { class: 'btn', target: '_blank', rel: 'noopener', href: 'https://www.youtube.com/results?search_query=' + encodeURIComponent(s.title + ' ' + (s.artist || '')) }, 'Chercher cette chanson sur YouTube'), h('p', { class: 'hint' }, 'Pour intégrer la vidéo ici, colle son lien dans « Options », puis « Modifier la chanson ».'));
     if (id) drawVid();
 
